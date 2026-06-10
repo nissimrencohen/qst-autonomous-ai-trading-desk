@@ -1,28 +1,54 @@
 """Agentic Engine — FastAPI entrypoint.
 
-CrewAI multi-agent team (Technical Analyst, Fundamental Analyst, Risk Manager) synthesizing RAG and Vision outputs into a structured JSON probability report.
+CrewAI multi-agent team (Technical Analyst, Fundamental Analyst, Risk
+Manager) synthesizing RAG and Vision outputs into a structured JSON
+probability report.
 """
 from __future__ import annotations
 
+import logging
 import time
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from app import __version__
+from app.api import router
 from app.config import settings
+from app.engine import build_engine
 from app.logging_conf import configure_logging
+from app.runs import RunStore
 
 configure_logging()
+log = logging.getLogger(__name__)
 
-app = FastAPI(title="Agentic Engine", version=__version__, description="""CrewAI multi-agent team (Technical Analyst, Fundamental Analyst, Risk Manager) synthesizing RAG and Vision outputs into a structured JSON probability report.""")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.engine = build_engine()
+    app.state.runs = RunStore()
+    log.info("engine=%s model=%s", app.state.engine.name, settings.bedrock_model_id)
+    yield
+
+
+app = FastAPI(
+    title="Agentic Engine",
+    version=__version__,
+    description="Multi-agent synthesis of RAG + Vision outputs into probability reports.",
+    lifespan=lifespan,
+)
+app.include_router(router)
 
 _STARTED_AT = time.monotonic()
 
 
 def readiness_checks() -> dict[str, bool]:
-    """Dependency probes for /ready. Real checks land with the core logic step."""
-    return {"config": True}
+    return {
+        "config": True,
+        "engine": getattr(app.state, "engine", None) is not None,
+        "run_store": getattr(app.state, "runs", None) is not None,
+    }
 
 
 @app.get("/health", tags=["ops"])
@@ -38,7 +64,7 @@ def health() -> dict:
 
 @app.get("/ready", tags=["ops"])
 def ready() -> JSONResponse:
-    """Readiness — every service dependency is reachable."""
+    """Readiness — synthesis engine and run store are initialized."""
     checks = readiness_checks()
     ok = all(checks.values())
     return JSONResponse(

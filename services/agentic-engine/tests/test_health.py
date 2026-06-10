@@ -3,11 +3,10 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 
-client = TestClient(app)
-
 
 def test_health_returns_ok() -> None:
-    res = client.get("/health")
+    with TestClient(app) as client:
+        res = client.get("/health")
     assert res.status_code == 200
     body = res.json()
     assert body["status"] == "ok"
@@ -15,7 +14,9 @@ def test_health_returns_ok() -> None:
 
 
 def test_ready_reports_all_checks_passing() -> None:
-    res = client.get("/ready")
+    # context manager runs the lifespan, which builds engine + run store
+    with TestClient(app) as client:
+        res = client.get("/ready")
     assert res.status_code == 200
     body = res.json()
     assert body["ready"] is True

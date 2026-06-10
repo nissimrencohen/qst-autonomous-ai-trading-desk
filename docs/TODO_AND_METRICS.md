@@ -10,7 +10,7 @@
 | 1 | Repo structure + `/docs` initialization | ✅ Done | 2026-06-10 |
 | 2 | Scaffold 4 FastAPI services (health checks + Dockerfiles) | ✅ Done | 2026-06-10 |
 | 3 | Vision Analyser core (PyTorch) + RAG service (ChromaDB) | ✅ Done | 2026-06-10 |
-| 4 | CrewAI Agentic Engine + AWS Bedrock wiring | ⬜ Not started | — |
+| 4 | CrewAI Agentic Engine + AWS Bedrock wiring | ✅ Done | 2026-06-10 |
 | 5 | NeMo Guardrails configs (YAML/Colang) | ⬜ Not started | — |
 | 6 | React UI + Streamlit admin panel | ⬜ Not started | — |
 | 7 | n8n end-to-end orchestration | ⬜ Not started | — |
@@ -31,13 +31,13 @@
 ### Layer 3 — Microservices (FastAPI · Docker · AWS EC2)
 - [x] **RAG Service:** ChromaDB init, HuggingFace embeddings, `/ingest`, `/query`, Bedrock/Llama.cpp summarization (Step 3, 2026-06-10)
 - [x] **Vision Analyser:** PyTorch ResNet-50/EfficientNet, chart screenshot → bullish/bearish condition score (Step 3, 2026-06-10)
-- [ ] **Agentic Engine:** CrewAI team (Technical Analyst, Fundamental Analyst, Risk Manager) → structured JSON report
+- [x] **Agentic Engine:** CrewAI team (Technical Analyst, Fundamental Analyst, Risk Manager) → structured JSON report (Step 4, 2026-06-10)
 - [ ] **Guardrails Service:** NeMo input rails (off-topic/illegal assets) + output rails (no guarantees, no hallucinated metrics)
 - [x] All services: `GET /health` + `GET /ready`, Dockerfile each, docker-compose for local dev (Step 2, 2026-06-10)
 - [ ] Deployed to AWS EC2 with Docker
 
 ### Layer 4 — LLM Layer
-- [ ] AWS Bedrock integration (primary)
+- [x] AWS Bedrock integration (primary) — RAG summarizer + CrewAI LLM, env-switchable (Step 4)
 - [ ] Local Llama.cpp/Ollama path for designated local tasks
 - [ ] Provider abstraction (Bedrock ↔ local swappable via config)
 
@@ -47,7 +47,7 @@
 - [x] `CHANGELOG.md` initialized with Step 1 entry
 - [x] `PROMPT_ENGINEERING_LOG.md` template + prompt-family index
 - [ ] Prompt log: **n8n extractor** — ≥5 iterations + 10-case pass rate
-- [ ] Prompt log: **Agent roles** — ≥5 iterations + 10-case pass rate
+- [x] Prompt log: **Agent roles** — ≥5 iterations + 10-case pass rate (9/10, 2026-06-10)
 - [x] Prompt log: **RAG retrieval** — ≥5 iterations + 10-case pass rate (9/10, 2026-06-10)
 - [ ] Prompt log: **Guardrails** — ≥5 iterations + 10-case pass rate
 - [ ] Prompt log: **Ollama UI** — ≥5 iterations + 10-case pass rate

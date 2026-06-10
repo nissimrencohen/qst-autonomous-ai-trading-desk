@@ -6,7 +6,24 @@ newest first. Format loosely follows [Keep a Changelog](https://keepachangelog.c
 
 ## [Unreleased]
 
-_(Step 4 — CrewAI Agentic Engine + Bedrock — pending)_
+_(Step 5 — NeMo Guardrails — pending)_
+
+## [0.4.0] — 2026-06-10 · Step 4: CrewAI Agentic Engine + Bedrock
+
+### Added
+- `POST /synthesize`: RAG + Vision payloads → `ProbabilityReport` (validated probabilities summing to 1.0, technical/fundamental views, risk assessment with position caps, mandatory non-empty caveats).
+- `CrewEngine` (production): CrewAI sequential crew — Technical Analyst, Fundamental Analyst, Risk Manager — on AWS Bedrock, `output_pydantic`-enforced JSON, authoritative fields overwritten server-side.
+- `DeterministicEngine` (dev/CI/degraded): rule-based synthesis with the same contract — vision tilt × confidence drives probability mass; binary-catalyst detection (Phase 1b/trial/tender/FDA) forces high risk + ≤2% position cap.
+- `GET /runs/{run_id}`: thread-safe in-memory run-trace store (bounded LRU) powering the dashboard's agent-log panel.
+
+### Fixed
+- Binary-catalyst regex missed sub-phases like "Phase 1b" (`\b` cannot match between "1" and "b"); caught by `test_binary_catalyst_caps_position`.
+
+### Docs
+- `PROMPT_ENGINEERING_LOG.md`: **Family 2 (Agent roles)** complete — V1→V5 (chart-feature hallucination, world-knowledge blending, JSON-shape failures, risk-discipline gaps) + 10-case evaluation, 9/10.
+
+### Tests
+- 8 tests: report contract, bullish tilt, graceful no-vision degradation, binary-catalyst caps, trace retrieval, 404s. 8/8 passing.
 
 ## [0.3.0] — 2026-06-10 · Step 3: Vision Analyser + RAG core logic
 
