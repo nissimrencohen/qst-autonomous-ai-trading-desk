@@ -61,7 +61,7 @@ services:
   trading-dashboard:
     <<: *defaults
     build: ./frontend/trading-dashboard
-    ports: ["3000:80"]
+    ports: ["3002:80"]
     depends_on: [guardrails-service, rag-service, vision-analyser, agentic-engine]
 
   admin-panel:
@@ -76,16 +76,20 @@ services:
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
     depends_on: [rag-service, vision-analyser]
 
-  n8n:
-    <<: *defaults
-    image: n8nio/n8n:latest
-    ports: ["5678:5678"]
-    environment:
-      N8N_DIAGNOSTICS_ENABLED: "false"
-      N8N_RUNNERS_ENABLED: "true"
-      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-Asia/Jerusalem}
-    volumes:
-      - n8n_data:/home/node/.n8n
+  # n8n is managed as a standalone container (already running on :5678).
+  # To use the compose-managed n8n instead, rename the existing container and
+  # uncomment the block below.
+  #
+  # n8n:
+  #   <<: *defaults
+  #   image: n8nio/n8n:latest
+  #   ports: ["5678:5678"]
+  #   environment:
+  #     N8N_DIAGNOSTICS_ENABLED: "false"
+  #     N8N_RUNNERS_ENABLED: "true"
+  #     GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-Asia/Jerusalem}
+  #   volumes:
+  #     - n8n_data:/home/node/.n8n
 
 networks:
   trading-desk:

@@ -8,6 +8,20 @@ newest first. Format loosely follows [Keep a Changelog](https://keepachangelog.c
 
 _(post-1.0 backlog: EC2 deployment, crew confidence-weighting V6, Family-1 self-correction case)_
 
+## [1.0.1] — 2026-06-10 · Live local deployment hardening
+
+### Fixed
+- **n8n 2.x compatibility** of the workflow export: top-level `id` (CLI import constraint), node-level `webhookId` on the Webhook node (production registration), `publish:workflow` instead of deprecated `update:workflow --active`, and try/catch around `$('Node')` references to skipped branches in "Build Synthesis Payload" (n8n 2.x throws on unexecuted-node lookups).
+- Dashboard primary path: nginx now proxies `/webhook/*` to the n8n container (request-time DNS via Docker resolver, so the SPA still boots and falls back to direct mode when n8n is absent).
+- Port 8003 collision after a Docker Desktop restart (another project's backend bound it first; agentic-engine recreated with its binding restored). Dashboard republished on :3002 (3000 occupied by open-webui).
+
+### Added
+- `scripts/smoke_webhook.py` — live webhook smoke test (happy + insider-blocked paths).
+- `orchestration/n8n/README.md`: headless standalone-n8n deployment flow + n8n 2.x gotchas.
+
+### Verified
+- Full production-path smoke through n8n (chroma store + heuristic vision + deterministic engine + rule rails): report in **0.60s**, output rail `pass`, insider request blocked at `input_rail`. RAG corpus seeded into persistent Chroma (15 docs).
+
 ## [1.0.0] — 2026-06-10 · Step 7: n8n end-to-end orchestration — **all 7 steps complete**
 
 ### Added

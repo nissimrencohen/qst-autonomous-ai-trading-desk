@@ -25,13 +25,42 @@ Webhook POST /webhook/analyze
 
 ## Setup
 
-1. `docker compose up -d` (repo root) — starts n8n on `:5678` plus all four
-   services on the same bridge network (service DNS names are used in the
-   workflow's HTTP nodes).
+### Option A — compose-managed n8n
+1. Uncomment the `n8n` block in the root `docker-compose.yml` and
+   `docker compose up -d`.
 2. Open `http://localhost:5678`, create the local owner account.
 3. *Workflows → Import from file* → `workflows/analyze-request.json`.
 4. **Activate** the workflow. The production URL becomes
    `http://localhost:5678/webhook/analyze`.
+
+### Option B — pre-existing standalone n8n container (headless, no UI)
+This is the deployed setup. The workflow's HTTP nodes use compose-network
+DNS names, so the standalone container must join the network first:
+
+```bash
+docker network connect trading-desk_trading-desk n8n
+
+docker cp orchestration/n8n/workflows/analyze-request.json n8n:/tmp/wf.json
+docker exec n8n n8n import:workflow --input=/tmp/wf.json
+docker exec n8n n8n publish:workflow --id=TradingDeskWf001
+docker restart n8n
+python scripts/smoke_webhook.py     # verifies happy + blocked paths
+```
+
+### n8n 2.x gotchas (learned the hard way, 2026-06-10)
+- **CLI import requires a top-level `"id"`** in the workflow JSON
+  (`SQLITE_CONSTRAINT: workflow_entity.id` otherwise). Ours is pinned to
+  `TradingDeskWf001`, which also makes re-imports idempotent upserts.
+- **The Webhook node must carry a node-level `webhookId`**, or activation
+  succeeds but the production webhook is never registered (404
+  "webhook not registered").
+- **`update:workflow --active=true` is deprecated and insufficient** — it
+  activates an *empty published snapshot* (HTTP 200 with body `[]`, no
+  execution recorded). Use `publish:workflow`, then restart n8n.
+- **`$('Node')` references throw on skipped branches** ("Node ... hasn't
+  been executed"). Any Code node reading optional branches (extraction,
+  vision) must wrap the lookup in try/catch.
+
 5. Optional: set `OLLAMA_URL` / `OLLAMA_MODEL` env vars on the n8n container
    to enable free-text extraction (defaults target
    `host.docker.internal:11434`, model `llama3.1:8b`).

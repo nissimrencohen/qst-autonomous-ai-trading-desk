@@ -1,4 +1,5 @@
 {
+  "id": "TradingDeskWf001",
   "name": "Trading Desk — Analyze Request",
   "nodes": [
     {
@@ -6,6 +7,7 @@
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
+      "webhookId": "7a1e4d2c-90b3-4f6e-8c5d-1b2a3c4d5e6f",
       "position": [-1180, 0],
       "parameters": {
         "httpMethod": "POST",
@@ -236,7 +238,7 @@
       "typeVersion": 2,
       "position": [1460, -240],
       "parameters": {
-        "jsCode": "const p = $('Validate Payload').first().json;\nconst extracted = $('Merge Extraction').all().length ? $('Merge Extraction').first().json : null;\nconst rag = $('RAG Query').first().json;\nlet vision = null;\nconst visionItems = $('Vision Analyse').all();\nif (visionItems.length) {\n  const v = visionItems[0].json;\n  vision = { score: v.score, label: v.label, confidence: v.confidence, patterns: v.patterns };\n}\nreturn [{ json: {\n  ticker: p.ticker ?? extracted?.ticker,\n  question: p.question,\n  horizon_days: p.horizon_days ?? extracted?.horizon_days ?? 30,\n  rag: { summary: rag.summary, retrieved: rag.retrieved },\n  vision,\n} }];"
+        "jsCode": "// $('Node') throws in n8n 2.x when the referenced node was skipped — guard optional branches.\nconst p = $('Validate Payload').first().json;\nlet extracted = null;\ntry { const items = $('Merge Extraction').all(); if (items.length) extracted = items[0].json; } catch (e) { /* extraction branch skipped */ }\nconst rag = $('RAG Query').first().json;\nlet vision = null;\ntry {\n  const visionItems = $('Vision Analyse').all();\n  if (visionItems.length) {\n    const v = visionItems[0].json;\n    vision = { score: v.score, label: v.label, confidence: v.confidence, patterns: v.patterns };\n  }\n} catch (e) { /* no chart branch */ }\nreturn [{ json: {\n  ticker: p.ticker ?? extracted?.ticker,\n  question: p.question,\n  horizon_days: p.horizon_days ?? extracted?.horizon_days ?? 30,\n  rag: { summary: rag.summary, retrieved: rag.retrieved },\n  vision,\n} }];"
       }
     },
     {
