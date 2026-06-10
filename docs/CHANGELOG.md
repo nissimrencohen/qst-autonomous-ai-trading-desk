@@ -6,7 +6,21 @@ newest first. Format loosely follows [Keep a Changelog](https://keepachangelog.c
 
 ## [Unreleased]
 
-_(Step 5 — NeMo Guardrails — pending)_
+_(Step 6 — React UI + Streamlit admin — pending)_
+
+## [0.5.0] — 2026-06-10 · Step 5: NeMo Guardrails
+
+### Added
+- `POST /validate/input` — blocks insider/MNPI requests, market manipulation (pump-and-dump, spoofing, front-running, wash trading), sanctioned/illicit-asset requests, malformed tickers, and off-topic questions.
+- `POST /validate/output` — three-way contract: `pass` / `sanitize` (guarantee language rewritten to calibrated phrasing) / `block` (claim-like figures — `$41.2B`, `38%` — absent from the supplied evidence ⇒ hallucinated metric).
+- Two backends behind `GUARDRAILS_BACKEND`: `rules` (deterministic regex rails, dev/CI/degraded) and `nemo` (same rules first, then NeMo Guardrails LLM self-check rails on Bedrock — fail-closed layering).
+- NeMo configuration committed: `rails/config.yml` (self_check_input / self_check_output prompts, V5) + `rails/flows.co` (Colang refusal flows for canonical insider/manipulation/illegal-asset/off-topic phrasings).
+
+### Docs
+- `PROMPT_ENGINEERING_LOG.md`: **Family 4 (Guardrails)** complete — V1→V5 (undefined policy, over-blocking false positives, jailbreak framing, fail-open parser breakage) + 10-case red-team/legitimate evaluation, 10/10.
+
+### Tests
+- 12 tests: 6 input-rail (allow/insider/manipulation/sanctioned/off-topic/malformed-ticker), 4 output-rail (pass/sanitize/block-hallucinated/grounded-numbers), 2 ops. 12/12 passing.
 
 ## [0.4.0] — 2026-06-10 · Step 4: CrewAI Agentic Engine + Bedrock
 

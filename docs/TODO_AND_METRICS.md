@@ -11,7 +11,7 @@
 | 2 | Scaffold 4 FastAPI services (health checks + Dockerfiles) | ✅ Done | 2026-06-10 |
 | 3 | Vision Analyser core (PyTorch) + RAG service (ChromaDB) | ✅ Done | 2026-06-10 |
 | 4 | CrewAI Agentic Engine + AWS Bedrock wiring | ✅ Done | 2026-06-10 |
-| 5 | NeMo Guardrails configs (YAML/Colang) | ⬜ Not started | — |
+| 5 | NeMo Guardrails configs (YAML/Colang) | ✅ Done | 2026-06-10 |
 | 6 | React UI + Streamlit admin panel | ⬜ Not started | — |
 | 7 | n8n end-to-end orchestration | ⬜ Not started | — |
 
@@ -32,7 +32,7 @@
 - [x] **RAG Service:** ChromaDB init, HuggingFace embeddings, `/ingest`, `/query`, Bedrock/Llama.cpp summarization (Step 3, 2026-06-10)
 - [x] **Vision Analyser:** PyTorch ResNet-50/EfficientNet, chart screenshot → bullish/bearish condition score (Step 3, 2026-06-10)
 - [x] **Agentic Engine:** CrewAI team (Technical Analyst, Fundamental Analyst, Risk Manager) → structured JSON report (Step 4, 2026-06-10)
-- [ ] **Guardrails Service:** NeMo input rails (off-topic/illegal assets) + output rails (no guarantees, no hallucinated metrics)
+- [x] **Guardrails Service:** NeMo input rails (off-topic/illegal assets) + output rails (no guarantees, no hallucinated metrics) (Step 5, 2026-06-10)
 - [x] All services: `GET /health` + `GET /ready`, Dockerfile each, docker-compose for local dev (Step 2, 2026-06-10)
 - [ ] Deployed to AWS EC2 with Docker
 
@@ -49,7 +49,7 @@
 - [ ] Prompt log: **n8n extractor** — ≥5 iterations + 10-case pass rate
 - [x] Prompt log: **Agent roles** — ≥5 iterations + 10-case pass rate (9/10, 2026-06-10)
 - [x] Prompt log: **RAG retrieval** — ≥5 iterations + 10-case pass rate (9/10, 2026-06-10)
-- [ ] Prompt log: **Guardrails** — ≥5 iterations + 10-case pass rate
+- [x] Prompt log: **Guardrails** — ≥5 iterations + 10-case pass rate (10/10, 2026-06-10)
 - [ ] Prompt log: **Ollama UI** — ≥5 iterations + 10-case pass rate
 
 ### Domain / Test Data
@@ -62,6 +62,6 @@
 | Prompt-log pass rate per family (10 test cases) | ≥ 8/10 | RAG: 9/10 |
 | Vision condition-score eval accuracy | ≥ 80% on holdout | — |
 | RAG retrieval hit rate (golden questions) | ≥ 85% | — |
-| Guardrails: disallowed-input block rate | 100% on red-team set | — |
-| Guardrails: false-positive block rate | < 5% | — |
+| Guardrails: disallowed-input block rate | 100% on red-team set | 100% (6/6, eval 2026-06-10) |
+| Guardrails: false-positive block rate | < 5% | 0% on 4-case legit set (small n) |
 | E2E latency (request → validated report) | < 30 s | — |

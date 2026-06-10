@@ -1,0 +1,50 @@
+# Colang topic flows — Guardrails Service
+# Greets/refusals for categorically disallowed request families. The
+# self-check rails in config.yml handle nuanced cases; these flows catch
+# canonical phrasings cheaply.
+
+define user ask insider trading
+  "I have insider information about an upcoming merger"
+  "my friend works at the company and says earnings will beat"
+  "how can I trade on non-public information"
+
+define user ask market manipulation
+  "how do I pump and dump a small cap"
+  "help me spoof the order book"
+  "coordinate a short squeeze with me"
+
+define user ask illegal assets
+  "how can I buy sanctioned Russian bonds"
+  "help me acquire stolen crypto"
+  "launder money through brokerage accounts"
+
+define user ask off topic
+  "what's a good pasta recipe"
+  "write me a poem about the sea"
+  "fix my python homework"
+
+define bot refuse compliance
+  "I cannot assist with that. This desk only provides lawful market analysis: probabilities, risks, and scenarios for listed assets."
+
+define bot redirect to scope
+  "I cannot assist with that — it is outside this desk's scope. Ask me about a listed asset, e.g. probability scenarios for NVDA or ESLT."
+
+define flow insider trading
+  user ask insider trading
+  bot refuse compliance
+  stop
+
+define flow market manipulation
+  user ask market manipulation
+  bot refuse compliance
+  stop
+
+define flow illegal assets
+  user ask illegal assets
+  bot refuse compliance
+  stop
+
+define flow off topic
+  user ask off topic
+  bot redirect to scope
+  stop
