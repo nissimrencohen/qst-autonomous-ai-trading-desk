@@ -1,0 +1,53 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# --- Node / React ---
+node_modules/
+dist/
+build/
+.vite/
+*.tsbuildinfo
+
+# --- Environments & secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+credentials*.json
+
+# --- Models & data artifacts ---
+*.pt
+*.pth
+*.onnx
+*.gguf
+*.safetensors
+chroma_db/
+chromadb/
+data/raw/
+*.ckpt
+
+# --- Docker ---
+*.log
+docker-compose.override.yml
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# --- Streamlit ---
+.streamlit/secrets.toml
+
+# --- n8n local state ---
+.n8n/
