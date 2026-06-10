@@ -8,7 +8,7 @@
 | Step | Scope | Status | Verified |
 |---|---|---|---|
 | 1 | Repo structure + `/docs` initialization | ✅ Done | 2026-06-10 |
-| 2 | Scaffold 4 FastAPI services (health checks + Dockerfiles) | ⬜ Not started | — |
+| 2 | Scaffold 4 FastAPI services (health checks + Dockerfiles) | ✅ Done | 2026-06-10 |
 | 3 | Vision Analyser core (PyTorch) + RAG service (ChromaDB) | ⬜ Not started | — |
 | 4 | CrewAI Agentic Engine + AWS Bedrock wiring | ⬜ Not started | — |
 | 5 | NeMo Guardrails configs (YAML/Colang) | ⬜ Not started | — |
@@ -33,7 +33,7 @@
 - [ ] **Vision Analyser:** PyTorch ResNet-50/EfficientNet, chart screenshot → bullish/bearish condition score
 - [ ] **Agentic Engine:** CrewAI team (Technical Analyst, Fundamental Analyst, Risk Manager) → structured JSON report
 - [ ] **Guardrails Service:** NeMo input rails (off-topic/illegal assets) + output rails (no guarantees, no hallucinated metrics)
-- [ ] All services: `GET /health` + `GET /ready`, Dockerfile each, docker-compose for local dev
+- [x] All services: `GET /health` + `GET /ready`, Dockerfile each, docker-compose for local dev (Step 2, 2026-06-10)
 - [ ] Deployed to AWS EC2 with Docker
 
 ### Layer 4 — LLM Layer

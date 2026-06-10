@@ -1,0 +1,62 @@
+name: trading-desk
+
+x-defaults: &defaults
+  restart: unless-stopped
+  networks: [trading-desk]
+
+services:
+  rag-service:
+    <<: *defaults
+    build: ./services/rag-service
+    ports: ["8001:8001"]
+    environment:
+      RAG_ENVIRONMENT: ${ENVIRONMENT:-dev}
+      RAG_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - chroma_data:/srv/chroma_db
+
+  vision-analyser:
+    <<: *defaults
+    build: ./services/vision-analyser
+    ports: ["8002:8002"]
+    environment:
+      VISION_ENVIRONMENT: ${ENVIRONMENT:-dev}
+      VISION_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+  agentic-engine:
+    <<: *defaults
+    build: ./services/agentic-engine
+    ports: ["8003:8003"]
+    environment:
+      AGENTIC_ENVIRONMENT: ${ENVIRONMENT:-dev}
+      AGENTIC_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+
+  guardrails-service:
+    <<: *defaults
+    build: ./services/guardrails-service
+    ports: ["8004:8004"]
+    environment:
+      GUARDRAILS_ENVIRONMENT: ${ENVIRONMENT:-dev}
+      GUARDRAILS_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+  n8n:
+    <<: *defaults
+    image: n8nio/n8n:latest
+    ports: ["5678:5678"]
+    environment:
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_RUNNERS_ENABLED: "true"
+      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-Asia/Jerusalem}
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+networks:
+  trading-desk:
+    driver: bridge
+
+volumes:
+  chroma_data:
+  n8n_data:

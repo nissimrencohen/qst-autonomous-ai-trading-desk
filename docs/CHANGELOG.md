@@ -6,7 +6,18 @@ newest first. Format loosely follows [Keep a Changelog](https://keepachangelog.c
 
 ## [Unreleased]
 
-_(Step 2 — microservice scaffolding — pending)_
+_(Step 3 — Vision Analyser + RAG core logic — pending)_
+
+## [0.2.0] — 2026-06-10 · Step 2: Microservice scaffolding
+
+### Added
+- Scaffolded all 4 FastAPI services (`rag-service` :8001, `vision-analyser` :8002, `agentic-engine` :8003, `guardrails-service` :8004) via `scripts/scaffold_services.py`, each with:
+  - `GET /health` (liveness) + `GET /ready` (dependency probes, 503 on failure)
+  - 12-factor config (`pydantic-settings`, per-service env prefix), structured JSON logging to stdout
+  - Pinned `requirements.txt`, `python:3.12-slim` Dockerfile with `HEALTHCHECK`, `.dockerignore`, `.env.example`
+  - Smoke tests (`tests/test_health.py`) — 8/8 passing in isolated per-service pytest runs
+- Root `docker-compose.yml`: 4 services + n8n (:5678) on a shared bridge network, named volumes for ChromaDB and n8n state; validated with `docker compose config`.
+- Root `.venv` dev toolchain (fastapi, uvicorn, pydantic-settings, httpx, pytest).
 
 ## [0.1.0] — 2026-06-10 · Step 1: Repository & documentation initialization
 
