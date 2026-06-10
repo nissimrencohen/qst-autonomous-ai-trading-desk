@@ -12,6 +12,13 @@ services:
     environment:
       RAG_ENVIRONMENT: ${ENVIRONMENT:-dev}
       RAG_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      RAG_STORE_BACKEND: chroma
+      RAG_CHROMA_PATH: /srv/chroma_db
+      RAG_SUMMARIZER_BACKEND: ${RAG_SUMMARIZER_BACKEND:-extractive}
+      RAG_BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-anthropic.claude-3-5-haiku-20241022-v1:0}
+      RAG_AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
     volumes:
       - chroma_data:/srv/chroma_db
 
@@ -22,6 +29,8 @@ services:
     environment:
       VISION_ENVIRONMENT: ${ENVIRONMENT:-dev}
       VISION_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      VISION_MODEL_BACKEND: ${VISION_MODEL_BACKEND:-heuristic}
+      VISION_MODEL_PATH: ${VISION_MODEL_PATH:-}
 
   agentic-engine:
     <<: *defaults

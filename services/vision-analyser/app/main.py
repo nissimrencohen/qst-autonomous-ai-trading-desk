@@ -1,28 +1,44 @@
 """Vision Analyser — FastAPI entrypoint.
 
-Scores technical chart screenshots with PyTorch (ResNet-50/EfficientNet): support, resistance, breakouts -> bullish/bearish condition score.
+Scores technical chart screenshots with PyTorch (ResNet-50/EfficientNet):
+support, resistance, breakouts -> bullish/bearish condition score.
 """
 from __future__ import annotations
 
+import logging
 import time
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from app import __version__
+from app.api import router
 from app.config import settings
 from app.logging_conf import configure_logging
 
 configure_logging()
+log = logging.getLogger(__name__)
 
-app = FastAPI(title="Vision Analyser", version=__version__, description="""Scores technical chart screenshots with PyTorch (ResNet-50/EfficientNet): support, resistance, breakouts -> bullish/bearish condition score.""")
+app = FastAPI(
+    title="Vision Analyser",
+    version=__version__,
+    description="Technical chart screenshot -> bullish/bearish condition score.",
+)
+app.include_router(router)
 
 _STARTED_AT = time.monotonic()
 
 
 def readiness_checks() -> dict[str, bool]:
-    """Dependency probes for /ready. Real checks land with the core logic step."""
-    return {"config": True}
+    from app.inference import get_analyser
+
+    try:
+        get_analyser()
+        analyser_ok = True
+    except Exception:
+        log.exception("analyser failed to load")
+        analyser_ok = False
+    return {"config": True, "analyser": analyser_ok}
 
 
 @app.get("/health", tags=["ops"])
@@ -38,7 +54,7 @@ def health() -> dict:
 
 @app.get("/ready", tags=["ops"])
 def ready() -> JSONResponse:
-    """Readiness — every service dependency is reachable."""
+    """Readiness — model backend is loaded and usable."""
     checks = readiness_checks()
     ok = all(checks.values())
     return JSONResponse(

@@ -9,7 +9,7 @@
 |---|---|---|---|
 | 1 | Repo structure + `/docs` initialization | ✅ Done | 2026-06-10 |
 | 2 | Scaffold 4 FastAPI services (health checks + Dockerfiles) | ✅ Done | 2026-06-10 |
-| 3 | Vision Analyser core (PyTorch) + RAG service (ChromaDB) | ⬜ Not started | — |
+| 3 | Vision Analyser core (PyTorch) + RAG service (ChromaDB) | ✅ Done | 2026-06-10 |
 | 4 | CrewAI Agentic Engine + AWS Bedrock wiring | ⬜ Not started | — |
 | 5 | NeMo Guardrails configs (YAML/Colang) | ⬜ Not started | — |
 | 6 | React UI + Streamlit admin panel | ⬜ Not started | — |
@@ -29,8 +29,8 @@
 - [ ] Workflow JSON exports committed to `/orchestration/n8n/workflows`
 
 ### Layer 3 — Microservices (FastAPI · Docker · AWS EC2)
-- [ ] **RAG Service:** ChromaDB init, HuggingFace embeddings, `/ingest`, `/query`, Bedrock/Llama.cpp summarization
-- [ ] **Vision Analyser:** PyTorch ResNet-50/EfficientNet, chart screenshot → bullish/bearish condition score
+- [x] **RAG Service:** ChromaDB init, HuggingFace embeddings, `/ingest`, `/query`, Bedrock/Llama.cpp summarization (Step 3, 2026-06-10)
+- [x] **Vision Analyser:** PyTorch ResNet-50/EfficientNet, chart screenshot → bullish/bearish condition score (Step 3, 2026-06-10)
 - [ ] **Agentic Engine:** CrewAI team (Technical Analyst, Fundamental Analyst, Risk Manager) → structured JSON report
 - [ ] **Guardrails Service:** NeMo input rails (off-topic/illegal assets) + output rails (no guarantees, no hallucinated metrics)
 - [x] All services: `GET /health` + `GET /ready`, Dockerfile each, docker-compose for local dev (Step 2, 2026-06-10)
@@ -48,18 +48,18 @@
 - [x] `PROMPT_ENGINEERING_LOG.md` template + prompt-family index
 - [ ] Prompt log: **n8n extractor** — ≥5 iterations + 10-case pass rate
 - [ ] Prompt log: **Agent roles** — ≥5 iterations + 10-case pass rate
-- [ ] Prompt log: **RAG retrieval** — ≥5 iterations + 10-case pass rate
+- [x] Prompt log: **RAG retrieval** — ≥5 iterations + 10-case pass rate (9/10, 2026-06-10)
 - [ ] Prompt log: **Guardrails** — ≥5 iterations + 10-case pass rate
 - [ ] Prompt log: **Ollama UI** — ≥5 iterations + 10-case pass rate
 
 ### Domain / Test Data
-- [ ] Seed data + test suites using NVDA, ESLT (Elbit), NXSN (Next Vision), TOND (Tondo Smart), CUE — realistic options scenarios
+- [x] Seed data + test suites using NVDA, ESLT (Elbit), NXSN (Next Vision), TOND (Tondo Smart), CUE — realistic options scenarios (`data/seed/financial_docs.json`, Step 3)
 
 ## Metrics (populated as components land)
 
 | Metric | Target | Current |
 |---|---|---|
-| Prompt-log pass rate per family (10 test cases) | ≥ 8/10 | — |
+| Prompt-log pass rate per family (10 test cases) | ≥ 8/10 | RAG: 9/10 |
 | Vision condition-score eval accuracy | ≥ 80% on holdout | — |
 | RAG retrieval hit rate (golden questions) | ≥ 85% | — |
 | Guardrails: disallowed-input block rate | 100% on red-team set | — |

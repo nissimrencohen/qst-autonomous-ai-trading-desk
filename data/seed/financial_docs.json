@@ -1,0 +1,110 @@
+{
+  "description": "Seed corpus for the RAG service — realistic mock fundamentals/news for the project's domain tickers. All figures are fictional.",
+  "documents": [
+    {
+      "ticker": "NVDA",
+      "source": "Q1-2026 earnings call",
+      "title": "Nvidia Q1-2026 results: data-center momentum continues",
+      "text": "Nvidia reported data-center revenue of $41.2B for Q1-2026, up 38% year over year, with total revenue of $48.9B. Management raised full-year guidance citing sustained demand for Blackwell-generation accelerators and early Rubin pre-orders. Gross margin held at 74%. CFO commentary flagged supply constraints easing in H2 and $12B in new long-term supply agreements.",
+      "published_at": "2026-05-21"
+    },
+    {
+      "ticker": "NVDA",
+      "source": "options desk note",
+      "title": "NVDA options flow ahead of June expiry",
+      "text": "Open interest in NVDA June call options at the 1300 strike rose 4x in two weeks, while put/call ratio fell to 0.42. Implied volatility for the front month sits at 52%, the highest since the January 2026 selloff. Dealers are short gamma above 1280, which could accelerate moves through that level into expiry.",
+      "published_at": "2026-05-12"
+    },
+    {
+      "ticker": "NVDA",
+      "source": "sector research",
+      "title": "Hyperscaler capex tracker — Q2-2026",
+      "text": "Aggregate hyperscaler capital expenditure guidance for 2026 was revised up 9% to $385B, with AI infrastructure the dominant line item. Nvidia's share of accelerator shipments is estimated at 81%, down from 86% a year earlier as custom silicon ramps. Pricing on flagship parts remains firm; lead times average 22 weeks.",
+      "published_at": "2026-04-29"
+    },
+    {
+      "ticker": "ESLT",
+      "source": "press release",
+      "title": "Elbit Systems wins $760M European munitions contract",
+      "text": "Elbit Systems announced a $760M contract to supply precision-guided munitions to a European NATO member over five years. The order backlog now stands at a record $22.6B, with Europe contributing 41% of new orders. Management noted production capacity expansions in Ramat HaSharon and a new facility in Romania coming online in Q3-2026.",
+      "published_at": "2026-04-03"
+    },
+    {
+      "ticker": "ESLT",
+      "source": "Q4-2025 earnings call",
+      "title": "Elbit Q4-2025: margins expand on backlog execution",
+      "text": "Elbit Systems closed FY-2025 with revenue of $7.4B, up 12%, and operating margin of 9.1%, up 140 basis points. Free cash flow turned positive at $410M after two years of working-capital build. Guidance for 2026 implies 10-13% revenue growth. Management cited European rearmament programs and UAS demand as primary drivers.",
+      "published_at": "2026-03-18"
+    },
+    {
+      "ticker": "ESLT",
+      "source": "analyst note",
+      "title": "ESLT valuation versus US defense peers",
+      "text": "Elbit trades at 21x forward earnings versus a US prime average of 19x, a premium justified by faster backlog growth (18% CAGR vs 7%). Key risks: shekel strength against the dollar, election-cycle budget timing in core export markets, and concentration of 28% of revenue in a single region. Price target raised to $310 from $285.",
+      "published_at": "2026-05-02"
+    },
+    {
+      "ticker": "NXSN",
+      "source": "Q1-2026 earnings release",
+      "title": "Next Vision Q1-2026: record quarter on drone-camera demand",
+      "text": "Next Vision Stabilized Systems reported Q1-2026 revenue of $48M, up 71% year over year, with net margin of 47%. The company supplies stabilized micro-cameras for tactical drones; management disclosed a design win with two additional Tier-1 European UAS integrators. Order backlog reached $96M, roughly double the prior-year level.",
+      "published_at": "2026-05-08"
+    },
+    {
+      "ticker": "NXSN",
+      "source": "industry report",
+      "title": "Tactical UAS optics market outlook 2026-2030",
+      "text": "The tactical drone optics segment is projected to grow at a 24% CAGR through 2030. Next Vision holds an estimated 35% share of the stabilized micro-payload niche. The report flags rising competition from two Chinese suppliers excluded from NATO procurement, effectively splitting the market into allied and non-allied supply chains, to Next Vision's benefit.",
+      "published_at": "2026-03-27"
+    },
+    {
+      "ticker": "NXSN",
+      "source": "TASE filing",
+      "title": "Next Vision announces capacity expansion and TASE-35 inclusion",
+      "text": "Following its inclusion in the TASE-35 index, Next Vision announced a 40% production-capacity expansion funded entirely from cash reserves of $210M. No debt on the balance sheet. The filing notes customer concentration: the top three customers account for 52% of trailing-twelve-month revenue.",
+      "published_at": "2026-02-11"
+    },
+    {
+      "ticker": "TOND",
+      "source": "company announcement",
+      "title": "Tondo Smart wins smart-lighting tender for 12 Italian municipalities",
+      "text": "Tondo Smart, an Israeli smart-city IoT company traded on the TASE, won a framework tender to deploy its lighting-control platform across 12 Italian municipalities, an estimated NIS 38M over four years. The deal more than doubles Tondo's contracted backlog. Management reiterated a path to EBITDA breakeven by Q4-2026.",
+      "published_at": "2026-04-22"
+    },
+    {
+      "ticker": "TOND",
+      "source": "H2-2025 financial report",
+      "title": "Tondo Smart H2-2025: revenue growth with continued cash burn",
+      "text": "Tondo Smart reported H2-2025 revenue of NIS 21M, up 64%, with a net loss of NIS 9M. Cash position of NIS 47M after a NIS 30M private placement in November 2025. At the current burn rate management estimates over 24 months of runway. Gross margin improved to 41% on a shift toward software subscriptions, now 33% of revenue.",
+      "published_at": "2026-03-30"
+    },
+    {
+      "ticker": "TOND",
+      "source": "micro-cap research note",
+      "title": "TOND: thin liquidity, binary tender pipeline",
+      "text": "Average daily turnover in TOND shares is roughly NIS 600K, making position entry and exit costly for institutional size. The investment case is a pipeline of municipal tenders in Italy, Spain and Israel worth an estimated NIS 120M; conversion of any single large tender materially changes the model. Dilution risk remains if breakeven slips beyond 2026.",
+      "published_at": "2026-05-15"
+    },
+    {
+      "ticker": "CUE",
+      "source": "clinical update",
+      "title": "Cue Biopharma reports interim Phase 1b data for CUE-101",
+      "text": "Cue Biopharma released interim Phase 1b data for CUE-101 in HPV16+ head and neck cancer: overall response rate of 36% in the combination arm versus 19% historical control, with a manageable safety profile. Enrollment completion is expected in Q4-2026. Cash of $54M funds operations into mid-2027 after April's $40M raise.",
+      "published_at": "2026-05-19"
+    },
+    {
+      "ticker": "CUE",
+      "source": "options desk note",
+      "title": "CUE options pricing a binary catalyst",
+      "text": "CUE January 2027 options imply a move of ±85% around the expected Phase 1b readout, with call skew steepening over the past month. Short interest stands at 14% of float. Desk flags wide bid-ask spreads and recommends defined-risk structures such as call spreads over outright premium for catalyst positioning.",
+      "published_at": "2026-05-28"
+    },
+    {
+      "ticker": "CUE",
+      "source": "sector research",
+      "title": "Immuno-oncology funding environment 2026",
+      "text": "Biotech funding conditions improved in early 2026, with follow-on issuance up 60% year over year. Small-cap immuno-oncology names with clinical catalysts have outperformed the XBI by 22 points year to date. The note lists Cue Biopharma among ten companies with sub-$500M market caps and Phase 1b/2 readouts inside 12 months.",
+      "published_at": "2026-04-10"
+    }
+  ]
+}

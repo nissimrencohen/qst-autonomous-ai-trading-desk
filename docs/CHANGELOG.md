@@ -6,7 +6,22 @@ newest first. Format loosely follows [Keep a Changelog](https://keepachangelog.c
 
 ## [Unreleased]
 
-_(Step 3 — Vision Analyser + RAG core logic — pending)_
+_(Step 4 — CrewAI Agentic Engine + Bedrock — pending)_
+
+## [0.3.0] — 2026-06-10 · Step 3: Vision Analyser + RAG core logic
+
+### Added
+- **Vision Analyser:** `POST /analyse` (multipart: ticker + chart image) → condition score in [-1, 1], label, 5 pattern probabilities, confidence. Two backends behind `VISION_MODEL_BACKEND`: `torch` (ChartConditionNet — ResNet-50 backbone, score + multi-label pattern heads, `app/model.py`) and `heuristic` (deterministic ink-centroid trend extraction for dev/CI/degraded mode). Transfer-learning trainer at `training/train.py` (freeze→unfreeze schedule, CSV manifest).
+- **RAG Service:** `POST /ingest` + `POST /query` with lifespan-managed backends. Stores: `ChromaStore` (persistent ChromaDB, HF `all-MiniLM-L6-v2`, cosine HNSW, ticker-filtered) / `InMemoryStore` (dev/CI). Summarizers: `BedrockSummarizer` (Anthropic messages API), `OllamaSummarizer`, `ExtractiveSummarizer` (deterministic fallback). Grounded summarization prompt in `app/prompts.py`.
+- Seed corpus `data/seed/financial_docs.json` — 15 fictional-but-realistic docs across NVDA, ESLT, NXSN, TOND, CUE (earnings, options flow, research) + `scripts/seed_rag.py`.
+- Real readiness probes: vision checks analyser load; RAG checks store ping + summarizer init.
+- docker-compose: chroma/heuristic backends wired via env, AWS cred passthrough for Bedrock summarization.
+
+### Docs
+- `PROMPT_ENGINEERING_LOG.md`: **Family 3 (RAG retrieval & summarization)** complete — V1→V5 with named failure modes (hallucinated metrics, advice leakage, refusal-shape instability) and 10-case evaluation, pass rate 9/10.
+
+### Tests
+- Vision: 8 tests (synthetic uptrend/downtrend/flat charts, content-type & corrupt-image rejection, readiness). RAG: 6 tests (ingest counts, ticker-filtered retrieval, grounded extractive summary with attribution, empty-result contract, validation). 14/14 passing.
 
 ## [0.2.0] — 2026-06-10 · Step 2: Microservice scaffolding
 
