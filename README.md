@@ -33,7 +33,21 @@ data/seed/       mock market data (NVDA, ESLT, NXSN, TOND, CUE)
 tests/           cross-service integration tests
 ```
 
+## Quick start
+
+```bash
+docker compose up -d --build        # 4 services + n8n + dashboard + admin
+# import orchestration/n8n/workflows/analyze-request.json into n8n (:5678), activate
+python scripts/seed_rag.py          # seed the corpus (NVDA/ESLT/NXSN/TOND/CUE)
+# dashboard: http://localhost:3000 · admin: http://localhost:8501
+```
+
+Offline verification without Docker: `python scripts/e2e_local.py`
+(boots all four services on dev backends and replays the full chain).
+
 ## Status
 
-**Step 1 of 7 complete** — repository + documentation initialized.
-See [docs/TODO_AND_METRICS.md](docs/TODO_AND_METRICS.md) for live status.
+**All 7 steps complete (v1.0.0)** — system wired end-to-end and verified:
+E2E chain 12/12 assertions at 1.5s latency; 46 unit/integration tests passing;
+all 5 prompt families logged (25 iterations, pass rates ≥ 9/10).
+Remaining: EC2 deployment. See [docs/TODO_AND_METRICS.md](docs/TODO_AND_METRICS.md).

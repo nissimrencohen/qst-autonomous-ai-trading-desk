@@ -1,7 +1,7 @@
 # Architecture — Autonomous AI Trading Desk & Market Prediction Engine
 
 > **Status:** Living document. Updated at the end of every verified execution step.
-> **Last updated:** 2026-06-10 (Step 1 — repository initialization)
+> **Last updated:** 2026-06-10 (Step 7 — full system wired; all 7 steps complete)
 
 ## 1. System Overview
 
@@ -74,22 +74,35 @@ All services follow a shared convention:
 | **Agentic Engine** | 8003 | CrewAI (LangGraph-requirement equivalent), Bedrock | Multi-agent team — Technical Analyst, Fundamental Analyst, Risk Manager — synthesizes RAG + Vision outputs into structured JSON probability report |
 | **Guardrails Service** | 8004 | NeMo Guardrails (YAML/Colang) | Input rails: block off-topic / illegal-asset requests. Output rails: block absolute financial guarantees & hallucinated metrics |
 
-#### Planned endpoints (finalized in Step 2)
+#### Endpoints (implemented, Steps 2–5)
 
 ```
-RAG Service        POST /ingest            add document(s) to ChromaDB
-                   POST /query             retrieve + summarize context for a ticker
+RAG Service        POST /ingest            add document(s) to the vector store
+                   POST /query             ticker-filtered top-k retrieval + LLM summary
 
-Vision Analyser    POST /analyse           chart screenshot → condition score JSON
+Vision Analyser    POST /analyse           multipart {ticker, chart} → condition score JSON
 
-Agentic Engine     POST /synthesize        RAG + Vision payloads → probability report
-                   GET  /runs/{run_id}     agent execution trace (for dashboard logs)
+Agentic Engine     POST /synthesize        RAG + Vision payloads → ProbabilityReport
+                   GET  /runs/{run_id}     agent execution trace (dashboard log panel)
 
-Guardrails         POST /validate/input    user request → allow/deny + reason
-                   POST /validate/output   draft report → pass/sanitize/block
+Guardrails         POST /validate/input    {question, ticker} → allow/deny + violations
+                   POST /validate/output   {text, evidence} → pass | sanitize | block
 
-All services       GET  /health, GET /ready
+All services       GET  /health (liveness), GET /ready (dependency probes, 503 on failure)
 ```
+
+#### Backend matrix (env-switchable, per 12-factor config)
+
+| Service | Production backend | Dev/CI & degraded fallback |
+|---|---|---|
+| RAG store | `chroma` (persistent, HF `all-MiniLM-L6-v2`) | `memory` (keyword overlap) |
+| RAG summarizer | `bedrock` / `ollama` | `extractive` (deterministic) |
+| Vision | `torch` (ChartConditionNet, ResNet-50) | `heuristic` (ink-centroid trend) |
+| Agentic | `crew` (CrewAI on Bedrock) | `deterministic` (rule-based) |
+| Guardrails | `nemo` (rules + LLM self-check) | `rules` (deterministic rails only) |
+
+Every fallback honors the same API contract, so the system is demoable and
+testable offline end-to-end (verified by `scripts/e2e_local.py`).
 
 ### Layer 4 — LLM Layer
 - **AWS Bedrock** — primary provider for agent reasoning and RAG summarization.
@@ -100,21 +113,26 @@ All services       GET  /health, GET /ready
 
 ## 3. Data Flow (happy path)
 
-1. User submits `{ticker, question, chart_image?}` from the React dashboard.
-2. n8n webhook validates payload shape; rejects malformed requests immediately.
-3. n8n → Guardrails `/validate/input`. Off-topic or disallowed-asset requests are denied with a reason.
+1. User submits `{ticker, question, horizon_days, chart_base64?}` from the React dashboard to `POST /webhook/analyze`.
+2. n8n validates payload shape (Code node); malformed requests get 400 immediately. If no ticker was supplied, the **Ollama Extract** node (prompt Family 1) pulls `{ticker, horizon_days}` from the free text.
+3. n8n → Guardrails `/validate/input`. Off-topic, insider, manipulation, or illicit-asset requests are denied with `{blocked, stage: "input_rail", reasons}`.
 4. n8n fans out in parallel:
-   - RAG `/query` → retrieved fundamentals/news + summary.
-   - Vision `/analyse` → bullish/bearish condition score (skipped if no image).
-5. n8n → Agentic Engine `/synthesize` with both payloads. CrewAI agents debate and produce structured JSON: probability bands, rationale, risk assessment.
-6. n8n → Guardrails `/validate/output`. Absolute guarantees / hallucinated metrics are stripped or the report is blocked.
-7. Validated report returned to the dashboard; agent trace available via `/runs/{run_id}`.
+   - RAG `/query` → ticker-filtered retrieval + grounded summary.
+   - Vision `/analyse` → condition score (branch skipped when no chart was uploaded).
+5. n8n merges both legs → Agentic Engine `/synthesize`. The crew (Technical Analyst, Fundamental Analyst, Risk Manager) produces the validated `ProbabilityReport` JSON.
+6. n8n → Guardrails `/validate/output` with the report prose + retrieved evidence. Verdicts: `pass` / `sanitize` (caveat appended) / `block`.
+7. Validated report returns to the dashboard; the agent trace streams via `GET /runs/{run_id}`.
+
+Degraded mode: the dashboard falls back to driving the services directly
+(same chain, guardrails included) if the orchestrator is unreachable.
+
+Workflow export: [orchestration/n8n/workflows/analyze-request.json](../orchestration/n8n/workflows/analyze-request.json) · setup: [orchestration/n8n/README.md](../orchestration/n8n/README.md)
 
 ## 4. Docker & Deployment
 
-- Each service ships its own `Dockerfile`; local development uses a root
-  `docker-compose.yml` (added in Step 2) wiring all four services + n8n on a
-  shared bridge network.
+- Each service ships its own `Dockerfile`; the root `docker-compose.yml`
+  wires all four services + n8n (:5678) + the React dashboard (:3000, nginx)
+  + the Streamlit admin panel (:8501) on a shared bridge network.
 - Production target: AWS EC2 running Docker, one host initially; images pulled
   from a registry. GPU instance only required if Vision training/inference moves
   off CPU.

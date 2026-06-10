@@ -1,0 +1,379 @@
+{
+  "name": "Trading Desk — Analyze Request",
+  "nodes": [
+    {
+      "id": "wh-1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1180, 0],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "analyze",
+        "responseMode": "responseNode",
+        "options": { "allowedOrigins": "*" }
+      }
+    },
+    {
+      "id": "code-validate",
+      "name": "Validate Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-960, 0],
+      "parameters": {
+        "jsCode": "// Initial payload validation — shape only; semantics belong to the Guardrails service.\nconst b = $input.first().json.body ?? $input.first().json;\nconst out = {\n  valid: true,\n  error: null,\n  ticker: typeof b.ticker === 'string' ? b.ticker.trim().toUpperCase() : null,\n  question: typeof b.question === 'string' ? b.question.trim() : '',\n  horizon_days: Number.isInteger(b.horizon_days) ? b.horizon_days : 30,\n  chart_base64: typeof b.chart_base64 === 'string' && b.chart_base64.length > 0 ? b.chart_base64 : null,\n  chart_content_type: b.chart_content_type ?? 'image/png',\n};\nif (!out.question || out.question.length < 3 || out.question.length > 500) {\n  out.valid = false; out.error = 'question must be 3-500 characters';\n}\nif (out.horizon_days < 1 || out.horizon_days > 365) {\n  out.valid = false; out.error = 'horizon_days must be 1-365';\n}\nif (out.ticker && !/^[A-Z.\\-]{1,12}$/.test(out.ticker)) {\n  out.valid = false; out.error = 'ticker is not a valid symbol';\n}\nout.needs_extraction = out.valid && !out.ticker;\nreturn [{ json: out }];"
+      }
+    },
+    {
+      "id": "if-valid",
+      "name": "Payload Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-740, 0],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict", "version": 2 },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "resp-400",
+      "name": "Respond 400",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [-520, 180],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ blocked: true, stage: 'validation', reasons: [$json.error] }) }}",
+        "options": { "responseCode": 400 }
+      }
+    },
+    {
+      "id": "if-extract",
+      "name": "Needs Extraction?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-520, -60],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict", "version": 2 },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.needs_extraction }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "http-extract",
+      "name": "Ollama Extract",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-300, -180],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.OLLAMA_URL || 'http://host.docker.internal:11434') + '/api/generate' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OLLAMA_MODEL || 'llama3.1:8b', stream: false, format: 'json', system: \"You are the trading desk's request extractor. You receive ONE free-text analyst request. Extract the trade parameters and answer with ONLY a JSON object, no prose: {\\\"ticker\\\": string|null, \\\"horizon_days\\\": integer|null}. Rules: (1) ticker is the exchange symbol of the single primary asset; map company names to symbols ONLY for this desk's known instruments: Nvidia->NVDA, Elbit Systems->ESLT, Next Vision->NXSN, Tondo Smart->TOND, Cue Biopharma->CUE; any other asset -> use the symbol if explicitly given, else null. (2) horizon_days converts phrases: 'next week'->7, 'a month'/'monthly expiry'->30, 'a quarter'->90, 'a year'->365; no time phrase -> null. (3) Multiple assets -> ticker null. (4) Never invent symbols; never add fields.\", prompt: $json.question }) }}",
+        "options": { "timeout": 60000 }
+      }
+    },
+    {
+      "id": "code-merge-extract",
+      "name": "Merge Extraction",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-80, -180],
+      "parameters": {
+        "jsCode": "// Ollama returns {response: '<json string>'} — merge into the validated payload.\nconst base = $('Validate Payload').first().json;\nlet ext = {};\ntry { ext = JSON.parse($input.first().json.response); } catch (e) { ext = {}; }\nreturn [{ json: {\n  ...base,\n  ticker: base.ticker ?? (typeof ext.ticker === 'string' ? ext.ticker.toUpperCase() : null),\n  horizon_days: base.horizon_days ?? ext.horizon_days ?? 30,\n} }];"
+      }
+    },
+    {
+      "id": "http-rails-in",
+      "name": "Guardrails Input",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [140, -60],
+      "parameters": {
+        "method": "POST",
+        "url": "http://guardrails-service:8004/validate/input",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ question: $json.question, ticker: $json.ticker, source: 'n8n' }) }}",
+        "options": { "timeout": 30000 }
+      }
+    },
+    {
+      "id": "if-allowed",
+      "name": "Input Allowed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [360, -60],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict", "version": 2 },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.allowed }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "resp-blocked-in",
+      "name": "Respond Blocked (Input)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [580, 120],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ blocked: true, stage: 'input_rail', reasons: $json.violations.map(v => v.detail) }) }}",
+        "options": { "responseCode": 200 }
+      }
+    },
+    {
+      "id": "http-rag",
+      "name": "RAG Query",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [580, -180],
+      "parameters": {
+        "method": "POST",
+        "url": "http://rag-service:8001/query",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ticker: $('Validate Payload').first().json.ticker ?? $('Merge Extraction').first().json.ticker, question: $('Validate Payload').first().json.question, k: 4 }) }}",
+        "options": { "timeout": 120000 }
+      }
+    },
+    {
+      "id": "if-chart",
+      "name": "Has Chart?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [580, -380],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose", "version": 2 },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $('Validate Payload').first().json.chart_base64 }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty", "singleValue": true }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "code-chart-bin",
+      "name": "Decode Chart",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, -460],
+      "parameters": {
+        "jsCode": "const p = $('Validate Payload').first().json;\nreturn [{\n  json: { ticker: p.ticker },\n  binary: { chart: { data: p.chart_base64, mimeType: p.chart_content_type, fileName: 'chart.png' } },\n}];"
+      }
+    },
+    {
+      "id": "http-vision",
+      "name": "Vision Analyse",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1020, -460],
+      "parameters": {
+        "method": "POST",
+        "url": "http://vision-analyser:8002/analyse",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            { "name": "ticker", "value": "={{ $json.ticker }}" },
+            { "parameterType": "formBinaryData", "name": "chart", "inputDataFieldName": "chart" }
+          ]
+        },
+        "options": { "timeout": 120000 }
+      }
+    },
+    {
+      "id": "code-no-vision",
+      "name": "Vision Null",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, -300],
+      "parameters": { "jsCode": "return [{ json: { __no_vision: true } }];" }
+    },
+    {
+      "id": "merge-1",
+      "name": "Merge RAG + Vision",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1240, -240],
+      "parameters": { "mode": "combine", "combineBy": "combineByPosition", "options": {} }
+    },
+    {
+      "id": "code-synth-payload",
+      "name": "Build Synthesis Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1460, -240],
+      "parameters": {
+        "jsCode": "const p = $('Validate Payload').first().json;\nconst extracted = $('Merge Extraction').all().length ? $('Merge Extraction').first().json : null;\nconst rag = $('RAG Query').first().json;\nlet vision = null;\nconst visionItems = $('Vision Analyse').all();\nif (visionItems.length) {\n  const v = visionItems[0].json;\n  vision = { score: v.score, label: v.label, confidence: v.confidence, patterns: v.patterns };\n}\nreturn [{ json: {\n  ticker: p.ticker ?? extracted?.ticker,\n  question: p.question,\n  horizon_days: p.horizon_days ?? extracted?.horizon_days ?? 30,\n  rag: { summary: rag.summary, retrieved: rag.retrieved },\n  vision,\n} }];"
+      }
+    },
+    {
+      "id": "http-synth",
+      "name": "Synthesize",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1680, -240],
+      "parameters": {
+        "method": "POST",
+        "url": "http://agentic-engine:8003/synthesize",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": { "timeout": 180000 }
+      }
+    },
+    {
+      "id": "http-rails-out",
+      "name": "Guardrails Output",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1900, -240],
+      "parameters": {
+        "method": "POST",
+        "url": "http://guardrails-service:8004/validate/output",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: [$json.technical_view.rationale, $json.fundamental_view.rationale, $json.risk_assessment.notes].join(' '), evidence: ($('RAG Query').first().json.retrieved ?? []).map(d => d.text).concat([$('RAG Query').first().json.summary ?? '']) }) }}",
+        "options": { "timeout": 60000 }
+      }
+    },
+    {
+      "id": "if-out-ok",
+      "name": "Output Allowed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2120, -240],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict", "version": 2 },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.allowed }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "code-final",
+      "name": "Finalize Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2340, -320],
+      "parameters": {
+        "jsCode": "// Attach the output-rail verdict; surface sanitization in caveats.\nconst report = $('Synthesize').first().json;\nconst rail = $input.first().json;\nif (rail.action === 'sanitize') {\n  report.caveats = [...report.caveats, 'Output rail sanitized certainty language in this report.'];\n}\nreport.output_rail = { action: rail.action, violations: rail.violations };\nreturn [{ json: report }];"
+      }
+    },
+    {
+      "id": "resp-report",
+      "name": "Respond Report",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2560, -320],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": { "responseCode": 200 }
+      }
+    },
+    {
+      "id": "resp-blocked-out",
+      "name": "Respond Blocked (Output)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2340, -120],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ blocked: true, stage: 'output_rail', reasons: $json.violations.map(v => v.rule + ': ' + v.detail) }) }}",
+        "options": { "responseCode": 200 }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Validate Payload", "type": "main", "index": 0 }]] },
+    "Validate Payload": { "main": [[{ "node": "Payload Valid?", "type": "main", "index": 0 }]] },
+    "Payload Valid?": {
+      "main": [
+        [{ "node": "Needs Extraction?", "type": "main", "index": 0 }],
+        [{ "node": "Respond 400", "type": "main", "index": 0 }]
+      ]
+    },
+    "Needs Extraction?": {
+      "main": [
+        [{ "node": "Ollama Extract", "type": "main", "index": 0 }],
+        [{ "node": "Guardrails Input", "type": "main", "index": 0 }]
+      ]
+    },
+    "Ollama Extract": { "main": [[{ "node": "Merge Extraction", "type": "main", "index": 0 }]] },
+    "Merge Extraction": { "main": [[{ "node": "Guardrails Input", "type": "main", "index": 0 }]] },
+    "Guardrails Input": { "main": [[{ "node": "Input Allowed?", "type": "main", "index": 0 }]] },
+    "Input Allowed?": {
+      "main": [
+        [
+          { "node": "RAG Query", "type": "main", "index": 0 },
+          { "node": "Has Chart?", "type": "main", "index": 0 }
+        ],
+        [{ "node": "Respond Blocked (Input)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Has Chart?": {
+      "main": [
+        [{ "node": "Decode Chart", "type": "main", "index": 0 }],
+        [{ "node": "Vision Null", "type": "main", "index": 0 }]
+      ]
+    },
+    "Decode Chart": { "main": [[{ "node": "Vision Analyse", "type": "main", "index": 0 }]] },
+    "RAG Query": { "main": [[{ "node": "Merge RAG + Vision", "type": "main", "index": 0 }]] },
+    "Vision Analyse": { "main": [[{ "node": "Merge RAG + Vision", "type": "main", "index": 1 }]] },
+    "Vision Null": { "main": [[{ "node": "Merge RAG + Vision", "type": "main", "index": 1 }]] },
+    "Merge RAG + Vision": { "main": [[{ "node": "Build Synthesis Payload", "type": "main", "index": 0 }]] },
+    "Build Synthesis Payload": { "main": [[{ "node": "Synthesize", "type": "main", "index": 0 }]] },
+    "Synthesize": { "main": [[{ "node": "Guardrails Output", "type": "main", "index": 0 }]] },
+    "Guardrails Output": { "main": [[{ "node": "Output Allowed?", "type": "main", "index": 0 }]] },
+    "Output Allowed?": {
+      "main": [
+        [{ "node": "Finalize Report", "type": "main", "index": 0 }],
+        [{ "node": "Respond Blocked (Output)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Finalize Report": { "main": [[{ "node": "Respond Report", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {},
+  "meta": { "instanceId": "trading-desk-dev" }
+}

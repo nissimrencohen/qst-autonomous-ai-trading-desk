@@ -13,7 +13,7 @@
 | 4 | CrewAI Agentic Engine + AWS Bedrock wiring | ✅ Done | 2026-06-10 |
 | 5 | NeMo Guardrails configs (YAML/Colang) | ✅ Done | 2026-06-10 |
 | 6 | React UI + Streamlit admin panel | ✅ Done | 2026-06-10 |
-| 7 | n8n end-to-end orchestration | ⬜ Not started | — |
+| 7 | n8n end-to-end orchestration | ✅ Done | 2026-06-10 |
 
 ## Architecture Requirements Checklist
 
@@ -22,11 +22,11 @@
 - [x] Streamlit admin panel: raw data submission (reports, news, chart screenshots) (Step 6, 2026-06-10)
 
 ### Layer 2 — Orchestrator (n8n)
-- [ ] Webhook ingestion from both frontends
-- [ ] Initial payload validation (schema/required fields)
-- [ ] Parallel routing to RAG + Vision services
-- [ ] Synthesis call to Agentic Engine, output rail, response to UI
-- [ ] Workflow JSON exports committed to `/orchestration/n8n/workflows`
+- [x] Webhook ingestion from both frontends (Step 7, 2026-06-10)
+- [x] Initial payload validation (schema/required fields) (Step 7)
+- [x] Parallel routing to RAG + Vision services (Step 7)
+- [x] Synthesis call to Agentic Engine, output rail, response to UI (Step 7)
+- [x] Workflow JSON exports committed to `/orchestration/n8n/workflows` (Step 7)
 
 ### Layer 3 — Microservices (FastAPI · Docker · AWS EC2)
 - [x] **RAG Service:** ChromaDB init, HuggingFace embeddings, `/ingest`, `/query`, Bedrock/Llama.cpp summarization (Step 3, 2026-06-10)
@@ -39,14 +39,14 @@
 ### Layer 4 — LLM Layer
 - [x] AWS Bedrock integration (primary) — RAG summarizer + CrewAI LLM, env-switchable (Step 4)
 - [x] Local Llama.cpp/Ollama path for designated local tasks — RAG `OllamaSummarizer` + admin-panel pre-ingest summarizer (Step 6)
-- [ ] Provider abstraction (Bedrock ↔ local swappable via config)
+- [x] Provider abstraction (Bedrock ↔ local swappable via config) — backend matrix in ARCHITECTURE.md §2
 
 ### Documentation & Grading Compliance
 - [x] `/docs` directory with all 4 mandatory files (Step 1, 2026-06-10)
 - [x] `ARCHITECTURE.md` initial version
 - [x] `CHANGELOG.md` initialized with Step 1 entry
 - [x] `PROMPT_ENGINEERING_LOG.md` template + prompt-family index
-- [ ] Prompt log: **n8n extractor** — ≥5 iterations + 10-case pass rate
+- [x] Prompt log: **n8n extractor** — ≥5 iterations + 10-case pass rate (9/10, 2026-06-10)
 - [x] Prompt log: **Agent roles** — ≥5 iterations + 10-case pass rate (9/10, 2026-06-10)
 - [x] Prompt log: **RAG retrieval** — ≥5 iterations + 10-case pass rate (9/10, 2026-06-10)
 - [x] Prompt log: **Guardrails** — ≥5 iterations + 10-case pass rate (10/10, 2026-06-10)
@@ -59,9 +59,9 @@
 
 | Metric | Target | Current |
 |---|---|---|
-| Prompt-log pass rate per family (10 test cases) | ≥ 8/10 | RAG: 9/10 |
-| Vision condition-score eval accuracy | ≥ 80% on holdout | — |
-| RAG retrieval hit rate (golden questions) | ≥ 85% | — |
+| Prompt-log pass rate per family (10 test cases) | ≥ 8/10 | n8n 9/10 · Agents 9/10 · RAG 9/10 · Guardrails 10/10 · Ollama UI 9/10 |
+| Vision condition-score eval accuracy | ≥ 80% on holdout | heuristic backend: 3/3 synthetic directions correct; torch holdout pending labeled data |
+| RAG retrieval hit rate (golden questions) | ≥ 85% | 100% on E2E golden questions (memory store; chroma eval pending corpus growth) |
 | Guardrails: disallowed-input block rate | 100% on red-team set | 100% (6/6, eval 2026-06-10) |
 | Guardrails: false-positive block rate | < 5% | 0% on 4-case legit set (small n) |
-| E2E latency (request → validated report) | < 30 s | — |
+| E2E latency (request → validated report) | < 30 s | **1.50 s** (local chain, dev backends, `scripts/e2e_local.py`) |

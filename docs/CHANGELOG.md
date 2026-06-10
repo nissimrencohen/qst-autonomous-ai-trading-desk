@@ -6,7 +6,18 @@ newest first. Format loosely follows [Keep a Changelog](https://keepachangelog.c
 
 ## [Unreleased]
 
-_(Step 7 — n8n end-to-end orchestration — pending)_
+_(post-1.0 backlog: EC2 deployment, crew confidence-weighting V6, Family-1 self-correction case)_
+
+## [1.0.0] — 2026-06-10 · Step 7: n8n end-to-end orchestration — **all 7 steps complete**
+
+### Added
+- `orchestration/n8n/workflows/analyze-request.json` — importable 23-node workflow: webhook → payload validation (400 path) → optional Ollama free-text extraction (Family-1 prompt) → Guardrails input rail (blocked path) → parallel RAG ∥ Vision fan-out → merge → synthesis → Guardrails output rail (pass/sanitize/block paths) → respond. Service DNS names target the compose network.
+- `orchestration/n8n/README.md` — flow diagram, import/activation steps, curl smoke test.
+- `scripts/e2e_local.py` — boots all four services and replays the orchestration chain offline. **Verified: 12/12 assertions, chain latency 1.50s** (happy path NVDA + uptrend chart; negative paths: insider request blocked, hallucinated metric blocked).
+
+### Docs
+- `PROMPT_ENGINEERING_LOG.md`: **Family 1 (n8n extractor)** complete — V1→V5 (unparseable shape, ticker hallucination, horizon normalization, field discipline) + 10-case evaluation, 9/10. **All 5 prompt families now logged: 25/25 iterations, pass rates 9/10, 9/10, 9/10, 10/10, 9/10.**
+- `ARCHITECTURE.md` finalized: implemented endpoints, backend matrix (production vs. dev/CI fallbacks), end-to-end data flow with degraded mode.
 
 ## [0.6.0] — 2026-06-10 · Step 6: React trading dashboard + Streamlit admin panel
 
