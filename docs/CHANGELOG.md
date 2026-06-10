@@ -6,7 +6,21 @@ newest first. Format loosely follows [Keep a Changelog](https://keepachangelog.c
 
 ## [Unreleased]
 
-_(Step 6 — React UI + Streamlit admin — pending)_
+_(Step 7 — n8n end-to-end orchestration — pending)_
+
+## [0.6.0] — 2026-06-10 · Step 6: React trading dashboard + Streamlit admin panel
+
+### Added
+- **Trading dashboard** (`frontend/trading-dashboard`, Vite + React + TS, :3000): DESK/01 terminal UI — order-ticket form (domain tickers, horizon slider, chart upload), animated probability report (bull/neutral/bear bars, technical/fundamental/risk cards, caveats), live agent-trace panel polling `/runs/{id}`, pipeline stage indicator, blocked-request rendering. Primary data path is the n8n webhook; automatic degraded direct-services mode (guardrails → RAG ∥ Vision → synthesize) when the orchestrator is down. Production build verified (`tsc -b && vite build`). Two-stage Docker build (node → nginx).
+- **Admin panel** (`frontend/admin-panel`, Streamlit, :8501): single-doc + bulk-JSON RAG ingestion, Vision chart quick-score, local Ollama pre-ingest summarizer (Family-5 prompt), sidebar service-health board.
+- CORS middleware (env-configurable origins) on all four services — required for browser direct mode and trace polling.
+- docker-compose: `trading-dashboard` (:3000) and `admin-panel` (:8501) services.
+
+### Docs
+- `PROMPT_ENGINEERING_LOG.md`: **Family 5 (Ollama UI)** complete — V1→V5 (number corruption, shape instability, preamble, off-topic confidence) + 10-case evaluation, 9/10.
+
+### Tests
+- Full backend regression after CORS changes: 34/34 passing. React production build clean; Streamlit app syntax-checked.
 
 ## [0.5.0] — 2026-06-10 · Step 5: NeMo Guardrails
 

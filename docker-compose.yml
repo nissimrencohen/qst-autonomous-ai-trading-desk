@@ -58,6 +58,24 @@ services:
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
 
+  trading-dashboard:
+    <<: *defaults
+    build: ./frontend/trading-dashboard
+    ports: ["3000:80"]
+    depends_on: [guardrails-service, rag-service, vision-analyser, agentic-engine]
+
+  admin-panel:
+    <<: *defaults
+    build: ./frontend/admin-panel
+    ports: ["8501:8501"]
+    environment:
+      RAG_URL: http://rag-service:8001
+      VISION_URL: http://vision-analyser:8002
+      AGENTIC_URL: http://agentic-engine:8003
+      GUARDRAILS_URL: http://guardrails-service:8004
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+    depends_on: [rag-service, vision-analyser]
+
   n8n:
     <<: *defaults
     image: n8nio/n8n:latest

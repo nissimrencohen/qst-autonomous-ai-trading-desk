@@ -9,6 +9,7 @@ import logging
 import time
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app import __version__
@@ -23,6 +24,12 @@ app = FastAPI(
     title="Vision Analyser",
     version=__version__,
     description="Technical chart screenshot -> bullish/bearish condition score.",
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins.split(","),
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 app.include_router(router)
 

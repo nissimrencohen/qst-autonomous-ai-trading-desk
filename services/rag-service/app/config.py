@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     port: int = 8001
     log_level: str = "INFO"
     environment: str = "dev"
+    cors_origins: str = "*"  # comma-separated; tighten in production
 
     # Vector store: "chroma" (production) | "memory" (dev/CI fallback)
     store_backend: Literal["chroma", "memory"] = "memory"

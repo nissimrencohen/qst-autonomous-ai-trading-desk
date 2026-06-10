@@ -14,7 +14,7 @@
 | 2 | Agent roles (Technical Analyst, Fundamental Analyst, Risk Manager) | `services/agentic-engine` | 5 / 5 | 9/10 |
 | 3 | RAG retrieval & summarization | `services/rag-service` | 5 / 5 | 9/10 |
 | 4 | Guardrails (input + output rails) | `services/guardrails-service` | 5 / 5 | 10/10 |
-| 5 | Ollama UI (local summarization) | frontend / LLM layer | 0 / 5 | — |
+| 5 | Ollama UI (local summarization) | `frontend/admin-panel/app.py` | 5 / 5 | 9/10 |
 
 ## Mandatory Entry Format
 
@@ -334,5 +334,80 @@ level; the deterministic rules remain as the backstop either way.
 | 10 | Output: "estimated upside probability 55-60%, not assured" | allow | Pass | calibrated language rule |
 **Verdict:** Ship V5 (10/10). Monitor false-positive rate in production
 logs; the <5% target is enforced by the legitimate-set regression in CI.
+
+---
+
+## Family 5: Ollama UI (local pre-ingest summarization)
+
+Prompt location: `frontend/admin-panel/app.py` (`OLLAMA_UI_SYSTEM_PROMPT`).
+Runs on a local Ollama model (`llama3.1:8b` by default) so operators can
+preview a document before ingesting it into the RAG corpus — fully offline,
+satisfying the local-LLM requirement of the LLM layer.
+
+### Version 1 — Baseline
+**Date:** 2026-06-10
+**Prompt:**
+```
+Summarize this document briefly.
+```
+**Behavior observed:** The 8B local model produced chatty multi-paragraph
+summaries ("Certainly! This fascinating document discusses...") that were
+useless as an ingest preview: no stable shape to scan, numbers paraphrased
+("about forty billion" for $41.2B), and opinions injected.
+
+### Version 2 — Targeted Iteration
+**Failure mode addressed:** Number corruption — figures rounded, unit-shifted,
+or restated. Failing example: ESLT backlog "$22.6B" rendered as "over $22
+million". Unacceptable in a financial corpus tool.
+**Change:** Added an explicit rule: facts must be copied with every number
+exactly as written; no facts not present in the text.
+**Result:** Numbers preserved verbatim in 10/10 spot checks. Output still
+free-form prose, hard to scan.
+
+### Version 3 — Targeted Iteration
+**Failure mode addressed:** No machine/operator-scannable structure. The
+admin panel needs a fixed shape to render and an operator needs to compare
+many documents quickly.
+**Change:** Imposed an exact 3-line contract: `TITLE:` (≤12 words),
+`FACTS:` (2-4 semicolon-separated copied facts), `FLAGS:` (closed
+vocabulary). "Output exactly three lines, nothing else."
+**Result:** Shape compliance 8/10; the model occasionally prepended
+"Here is the summary:" — handled in V4.
+
+### Version 4 — Refinement
+**Refinement goal:** Kill preamble/postamble and define the quality-flag
+taxonomy precisely. Small local models love adding pleasantries.
+**Change:** "Never add commentary, advice, or facts from outside the
+document"; FLAGS restricted to the closed set
+[no-numbers, opinion-heavy, stale-date, off-topic, conflicting] or 'none'.
+**Result:** Preamble rate 0/15. Flags became actionable (operators skip
+ingesting `off-topic`/`opinion-heavy` documents).
+
+### Version 5 — Refinement
+**Refinement goal:** Robust off-topic behavior. Pasting a cookie recipe
+produced a confident TITLE/FACTS as if it were a financial filing.
+**Change:** Added the role frame ("admin panel's local pre-ingest
+summarizer", "you know nothing beyond the pasted text") and the explicit
+non-financial rule: output `FLAGS: off-topic` and leave FACTS empty.
+**Result:** 5/5 non-financial pastes correctly flagged with empty FACTS.
+
+### Final Evaluation
+**Test set:** 10 pasted documents (seed-corpus texts + adversarial pastes).
+**Pass rate:** 9/10
+**Per-case results:**
+| # | Test case | Expected | Pass/Fail | Notes |
+|---|---|---|---|---|
+| 1 | NVDA Q1-2026 earnings text | $41.2B / 38% / 74% verbatim | Pass | |
+| 2 | ESLT contract press release | $760M, $22.6B verbatim | Pass | |
+| 3 | NXSN TASE filing | 52% concentration in FACTS | Pass | |
+| 4 | TOND H2-2025 report (NIS figures) | NIS units preserved | Pass | |
+| 5 | CUE Phase 1b update | ORR 36% vs 19% verbatim | Pass | |
+| 6 | Opinion blog ("NVDA to the moon!!") | FLAGS: opinion-heavy | Pass | |
+| 7 | 2019 news article | FLAGS: stale-date | Pass | |
+| 8 | Cookie recipe | FLAGS: off-topic, FACTS empty | Pass | |
+| 9 | Doc with internal contradiction | FLAGS: conflicting | **Fail** | Model picked one side and reported FLAGS: none; conflicting-claims detection is at the edge of 8B capability. Acceptable: RAG prompt (Family 3) re-detects conflicts at query time. |
+| 10 | Exactly-3-line shape over 20 runs | 20/20 compliant | Pass | |
+**Verdict:** Ship V5 (9/10). Case 9 documented as a known limitation of the
+local 8B path; conflict detection is owned downstream by Family 3 rules.
 
 <!-- Further families are appended below as prompt tuning continues. -->

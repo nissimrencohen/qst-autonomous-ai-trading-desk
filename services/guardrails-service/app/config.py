@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     port: int = 8004
     log_level: str = "INFO"
     environment: str = "dev"
+    cors_origins: str = "*"  # comma-separated; tighten in production
 
     # "nemo" = deterministic rules + NeMo LLM self-check rails (production);
     # "rules" = deterministic rules only (dev/CI/degraded mode).

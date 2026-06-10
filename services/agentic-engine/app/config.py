@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     port: int = 8003
     log_level: str = "INFO"
     environment: str = "dev"
+    cors_origins: str = "*"  # comma-separated; tighten in production
 
     # "crew" = CrewAI on Bedrock (production); "deterministic" = rule-based
     # dev/CI/degraded-mode fallback with the same output contract.

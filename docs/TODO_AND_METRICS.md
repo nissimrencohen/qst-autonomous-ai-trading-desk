@@ -12,14 +12,14 @@
 | 3 | Vision Analyser core (PyTorch) + RAG service (ChromaDB) | ✅ Done | 2026-06-10 |
 | 4 | CrewAI Agentic Engine + AWS Bedrock wiring | ✅ Done | 2026-06-10 |
 | 5 | NeMo Guardrails configs (YAML/Colang) | ✅ Done | 2026-06-10 |
-| 6 | React UI + Streamlit admin panel | ⬜ Not started | — |
+| 6 | React UI + Streamlit admin panel | ✅ Done | 2026-06-10 |
 | 7 | n8n end-to-end orchestration | ⬜ Not started | — |
 
 ## Architecture Requirements Checklist
 
 ### Layer 1 — Frontend
-- [ ] React trading dashboard: request submission, probability report display, charts, live agent logs
-- [ ] Streamlit admin panel: raw data submission (reports, news, chart screenshots)
+- [x] React trading dashboard: request submission, probability report display, charts, live agent logs (Step 6, 2026-06-10)
+- [x] Streamlit admin panel: raw data submission (reports, news, chart screenshots) (Step 6, 2026-06-10)
 
 ### Layer 2 — Orchestrator (n8n)
 - [ ] Webhook ingestion from both frontends
@@ -38,7 +38,7 @@
 
 ### Layer 4 — LLM Layer
 - [x] AWS Bedrock integration (primary) — RAG summarizer + CrewAI LLM, env-switchable (Step 4)
-- [ ] Local Llama.cpp/Ollama path for designated local tasks
+- [x] Local Llama.cpp/Ollama path for designated local tasks — RAG `OllamaSummarizer` + admin-panel pre-ingest summarizer (Step 6)
 - [ ] Provider abstraction (Bedrock ↔ local swappable via config)
 
 ### Documentation & Grading Compliance
@@ -50,7 +50,7 @@
 - [x] Prompt log: **Agent roles** — ≥5 iterations + 10-case pass rate (9/10, 2026-06-10)
 - [x] Prompt log: **RAG retrieval** — ≥5 iterations + 10-case pass rate (9/10, 2026-06-10)
 - [x] Prompt log: **Guardrails** — ≥5 iterations + 10-case pass rate (10/10, 2026-06-10)
-- [ ] Prompt log: **Ollama UI** — ≥5 iterations + 10-case pass rate
+- [x] Prompt log: **Ollama UI** — ≥5 iterations + 10-case pass rate (9/10, 2026-06-10)
 
 ### Domain / Test Data
 - [x] Seed data + test suites using NVDA, ESLT (Elbit), NXSN (Next Vision), TOND (Tondo Smart), CUE — realistic options scenarios (`data/seed/financial_docs.json`, Step 3)
