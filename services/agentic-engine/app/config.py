@@ -1,14 +1,18 @@
 """Runtime configuration via environment variables (12-factor)."""
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# anchored to the service root so tests/tools never pick up a repo-root .env
+_ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="AGENTIC_", env_file=".env", extra="ignore"
+        env_prefix="AGENTIC_", env_file=_ENV_FILE, extra="ignore"
     )
 
     service_name: str = "agentic-engine"

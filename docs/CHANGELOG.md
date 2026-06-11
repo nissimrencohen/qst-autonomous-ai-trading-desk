@@ -8,6 +8,24 @@ newest first. Format loosely follows [Keep a Changelog](https://keepachangelog.c
 
 _(post-1.0 backlog: EC2 deployment, crew confidence-weighting V6, Family-1 self-correction case)_
 
+## [1.0.2] — 2026-06-11 · Live local LLM layer (Ollama qwen3:8b)
+
+### Added
+- RAG summarizer switched to live Ollama (`qwen3:8b`) via root `.env` (`RAG_SUMMARIZER_BACKEND=ollama`); compose passes `RAG_OLLAMA_URL/MODEL` and the admin panel's `OLLAMA_MODEL`.
+- `OllamaSummarizer`: `think: false` for reasoning models (measured **223s → 23s** on qwen3:8b) with graceful retry for older Ollama, plus `<think>` block stripping as backstop.
+- `scripts/smoke_llm.py` — live LLM-layer verification: real summarization, full n8n chain, free-text extraction.
+- `scripts/inspect_n8n_flat_error.py` — decodes n8n 2.x flattened execution data to surface node errors headlessly.
+
+### Fixed
+- n8n 2.x blocks `$env.*` in expressions ("access to env vars denied") — extractor URL/model are now workflow constants (documented in orchestration/n8n/README.md).
+- Per-service `Settings.env_file` anchored to the service root — the repo-root deployment `.env` no longer leaks into unit tests (caught by `test_rag_flow` failing from repo root only).
+- nginx webhook proxy read timeout 180s → 300s for cold-model calls.
+
+### Verified
+- Live qwen3:8b RAG summary: grounded + `[source:]` attribution + Coverage line, ~29s.
+- Full n8n chain (chart + LLM summarizer): report in ~68s, output rail `pass`.
+- **Family-1 extractor live**: free-text "Nvidia into the monthly expiry" → `NVDA` / 30d through the production webhook (~75s). All 34 unit tests still passing from any CWD.
+
 ## [1.0.1] — 2026-06-10 · Live local deployment hardening
 
 ### Fixed

@@ -60,6 +60,12 @@ python scripts/smoke_webhook.py     # verifies happy + blocked paths
 - **`$('Node')` references throw on skipped branches** ("Node ... hasn't
   been executed"). Any Code node reading optional branches (extraction,
   vision) must wrap the lookup in try/catch.
+- **`$env.*` in expressions fails with "access to env vars denied"**
+  (blocked by default in 2.x). The Ollama extractor URL/model are therefore
+  plain constants in the workflow — edit the "Ollama Extract" node to change
+  them, or set `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` on the container.
+- **Reasoning models (qwen3)**: pass `think: false` for operational calls —
+  measured 223s → 23s on qwen3:8b for the RAG summary.
 
 5. Optional: set `OLLAMA_URL` / `OLLAMA_MODEL` env vars on the n8n container
    to enable free-text extraction (defaults target

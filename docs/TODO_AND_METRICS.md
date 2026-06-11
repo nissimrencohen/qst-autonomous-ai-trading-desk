@@ -64,4 +64,4 @@
 | RAG retrieval hit rate (golden questions) | ≥ 85% | 100% on E2E golden questions (memory store; chroma eval pending corpus growth) |
 | Guardrails: disallowed-input block rate | 100% on red-team set | 100% (6/6, eval 2026-06-10) |
 | Guardrails: false-positive block rate | < 5% | 0% on 4-case legit set (small n) |
-| E2E latency (request → validated report) | < 30 s | **1.50 s** (local chain, dev backends, `scripts/e2e_local.py`) |
+| E2E latency (request → validated report) | < 30 s | **1.50 s** dev backends · **~68 s** with live local qwen3:8b summarizer (CPU-bound; ⚠ exceeds target — Bedrock path expected well under, local path acceptable for demo) |

@@ -15,6 +15,8 @@ services:
       RAG_STORE_BACKEND: chroma
       RAG_CHROMA_PATH: /srv/chroma_db
       RAG_SUMMARIZER_BACKEND: ${RAG_SUMMARIZER_BACKEND:-extractive}
+      RAG_OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      RAG_OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
       RAG_BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-anthropic.claude-3-5-haiku-20241022-v1:0}
       RAG_AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
@@ -74,6 +76,7 @@ services:
       AGENTIC_URL: http://agentic-engine:8003
       GUARDRAILS_URL: http://guardrails-service:8004
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
     depends_on: [rag-service, vision-analyser]
 
   # n8n is managed as a standalone container (already running on :5678).

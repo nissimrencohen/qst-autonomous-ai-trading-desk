@@ -54,6 +54,8 @@ class OllamaSummarizer:
     """Local Ollama / llama.cpp-served model."""
 
     name = "ollama"
+    # reasoning models (qwen3, deepseek-r1) prepend <think>...</think>
+    _REASONING_BLOCK = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
 
     def __init__(self, base_url: str | None = None, model: str | None = None) -> None:
         self._base_url = (base_url or settings.ollama_url).rstrip("/")
@@ -62,18 +64,22 @@ class OllamaSummarizer:
     def summarize(self, ticker: str, question: str, docs: list[RetrievedDoc]) -> str:
         import httpx
 
-        resp = httpx.post(
-            f"{self._base_url}/api/generate",
-            json={
-                "model": self._model,
-                "system": RAG_SUMMARY_SYSTEM_PROMPT,
-                "prompt": build_user_prompt(ticker, question, docs),
-                "stream": False,
-            },
-            timeout=120,
-        )
+        payload = {
+            "model": self._model,
+            "system": RAG_SUMMARY_SYSTEM_PROMPT,
+            "prompt": build_user_prompt(ticker, question, docs),
+            "stream": False,
+            # reasoning models burn minutes thinking; the summary task doesn't
+            # need it (measured: 223s -> 23s on qwen3:8b)
+            "think": False,
+        }
+        resp = httpx.post(f"{self._base_url}/api/generate", json=payload, timeout=300)
+        if resp.status_code == 400:  # older Ollama without the think parameter
+            payload.pop("think")
+            resp = httpx.post(f"{self._base_url}/api/generate", json=payload, timeout=300)
         resp.raise_for_status()
-        return resp.json()["response"].strip()
+        text = resp.json()["response"]
+        return self._REASONING_BLOCK.sub("", text).strip()
 
 
 class ExtractiveSummarizer:

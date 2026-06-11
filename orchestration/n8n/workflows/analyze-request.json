@@ -86,11 +86,11 @@
       "position": [-300, -180],
       "parameters": {
         "method": "POST",
-        "url": "={{ ($env.OLLAMA_URL || 'http://host.docker.internal:11434') + '/api/generate' }}",
+        "url": "http://host.docker.internal:11434/api/generate",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $env.OLLAMA_MODEL || 'llama3.1:8b', stream: false, format: 'json', system: \"You are the trading desk's request extractor. You receive ONE free-text analyst request. Extract the trade parameters and answer with ONLY a JSON object, no prose: {\\\"ticker\\\": string|null, \\\"horizon_days\\\": integer|null}. Rules: (1) ticker is the exchange symbol of the single primary asset; map company names to symbols ONLY for this desk's known instruments: Nvidia->NVDA, Elbit Systems->ESLT, Next Vision->NXSN, Tondo Smart->TOND, Cue Biopharma->CUE; any other asset -> use the symbol if explicitly given, else null. (2) horizon_days converts phrases: 'next week'->7, 'a month'/'monthly expiry'->30, 'a quarter'->90, 'a year'->365; no time phrase -> null. (3) Multiple assets -> ticker null. (4) Never invent symbols; never add fields.\", prompt: $json.question }) }}",
-        "options": { "timeout": 60000 }
+        "jsonBody": "={{ JSON.stringify({ model: 'qwen3:8b', stream: false, format: 'json', think: false, system: \"You are the trading desk's request extractor. You receive ONE free-text analyst request. Extract the trade parameters and answer with ONLY a JSON object, no prose: {\\\"ticker\\\": string|null, \\\"horizon_days\\\": integer|null}. Rules: (1) ticker is the exchange symbol of the single primary asset; map company names to symbols ONLY for this desk's known instruments: Nvidia->NVDA, Elbit Systems->ESLT, Next Vision->NXSN, Tondo Smart->TOND, Cue Biopharma->CUE; any other asset -> use the symbol if explicitly given, else null. (2) horizon_days converts phrases: 'next week'->7, 'a month'/'monthly expiry'->30, 'a quarter'->90, 'a year'->365; no time phrase -> null. (3) Multiple assets -> ticker null. (4) Never invent symbols; never add fields.\", prompt: $json.question }) }}",
+        "options": { "timeout": 120000 }
       }
     },
     {
@@ -100,7 +100,7 @@
       "typeVersion": 2,
       "position": [-80, -180],
       "parameters": {
-        "jsCode": "// Ollama returns {response: '<json string>'} — merge into the validated payload.\nconst base = $('Validate Payload').first().json;\nlet ext = {};\ntry { ext = JSON.parse($input.first().json.response); } catch (e) { ext = {}; }\nreturn [{ json: {\n  ...base,\n  ticker: base.ticker ?? (typeof ext.ticker === 'string' ? ext.ticker.toUpperCase() : null),\n  horizon_days: base.horizon_days ?? ext.horizon_days ?? 30,\n} }];"
+        "jsCode": "// Ollama returns {response: '<json string>'} — merge into the validated payload.\n// Reasoning models (qwen3) may prepend <think> blocks; strip before parsing.\nconst base = $('Validate Payload').first().json;\nlet ext = {};\ntry {\n  const raw = ($input.first().json.response || '').replace(/<think>[\\s\\S]*?<\\/think>/g, '').trim();\n  ext = JSON.parse(raw);\n} catch (e) { ext = {}; }\nreturn [{ json: {\n  ...base,\n  ticker: base.ticker ?? (typeof ext.ticker === 'string' ? ext.ticker.toUpperCase() : null),\n  horizon_days: base.horizon_days ?? ext.horizon_days ?? 30,\n} }];"
       }
     },
     {
@@ -162,7 +162,7 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ ticker: $('Validate Payload').first().json.ticker ?? $('Merge Extraction').first().json.ticker, question: $('Validate Payload').first().json.question, k: 4 }) }}",
-        "options": { "timeout": 120000 }
+        "options": { "timeout": 300000 }
       }
     },
     {
