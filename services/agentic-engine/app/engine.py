@@ -174,15 +174,24 @@ class CrewEngine:
     def __init__(self) -> None:
         from crewai import Agent
         from app.llm_router import pick_crewai_llm
+        from app.web_tools import build_search_tools
 
         self._llm = pick_crewai_llm()
+        search_tools = build_search_tools()
         self._agents = {
-            key: Agent(llm=self._llm, verbose=False, allow_delegation=False, **spec)
-            for key, spec in (
-                ("technical", TECHNICAL_ANALYST),
-                ("fundamental", FUNDAMENTAL_ANALYST),
-                ("risk", RISK_MANAGER),
-            )
+            "technical": Agent(
+                llm=self._llm, verbose=False, allow_delegation=False, **TECHNICAL_ANALYST
+            ),
+            "fundamental": Agent(
+                llm=self._llm,
+                verbose=False,
+                allow_delegation=False,
+                tools=search_tools,
+                **FUNDAMENTAL_ANALYST,
+            ),
+            "risk": Agent(
+                llm=self._llm, verbose=False, allow_delegation=False, **RISK_MANAGER
+            ),
         }
 
     def synthesize(self, req: SynthesizeRequest, run: RunHandle) -> ProbabilityReport:
