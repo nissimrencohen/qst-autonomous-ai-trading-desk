@@ -29,6 +29,8 @@ services:
       RAG_GEMINI_MODEL: ${GEMINI_MODEL:-gemini/gemini-2.0-flash}
       RAG_OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       RAG_OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      RAG_GITHUB_API_KEY: ${GITHUB_API_KEY:-}
+      RAG_GITHUB_MODEL: ${GITHUB_MODEL:-gpt-4o-mini}
     volumes:
       - chroma_data:/srv/chroma_db
 
@@ -63,6 +65,8 @@ services:
       AGENTIC_GEMINI_MODEL: ${GEMINI_MODEL:-gemini/gemini-2.0-flash}
       AGENTIC_OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       AGENTIC_OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      AGENTIC_GITHUB_API_KEY: ${GITHUB_API_KEY:-}
+      AGENTIC_GITHUB_MODEL: ${GITHUB_MODEL:-gpt-4o-mini}
       AGENTIC_OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
       AGENTIC_OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
       # Web search

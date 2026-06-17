@@ -14,12 +14,53 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+import litellm
+
 from app import __version__
 from app.api import router
 from app.config import settings
 from app.engine import build_engine
 from app.logging_conf import configure_logging
 from app.runs import RunStore
+
+# CrewAI >=0.80 injects cache_breakpoint into system messages for Anthropic
+# prompt caching. Non-Anthropic providers (Groq, OpenAI, GitHub) reject it.
+litellm.drop_params = True
+
+# Pre-populate litellm's global key registry so keys are available even when
+# CrewAI's LLM wrapper omits explicit api_key forwarding to litellm.completion.
+def _configure_litellm_keys() -> None:
+    if k := settings.groq_api_key.get_secret_value():
+        litellm.groq_key = k
+    if k := settings.openai_api_key.get_secret_value():
+        litellm.openai_key = k
+
+_configure_litellm_keys()
+
+# crewai/llm.py (old LLM class) does not strip cache_breakpoint from messages
+# before forwarding to litellm — only the newer crewai/llms/base_llm.py does.
+# Patch LLM.call() here so every provider rejects Anthropic-specific markers.
+def _patch_crewai_llm_strip_cache_breakpoint() -> None:
+    try:
+        from crewai import LLM as _CrewLLM
+        from crewai.llms.cache import CACHE_BREAKPOINT_KEY
+    except ImportError:
+        return
+
+    _orig = _CrewLLM.call
+
+    def _call_patched(self, messages, *args, **kwargs):
+        if isinstance(messages, list):
+            messages = [
+                {k: v for k, v in m.items() if k != CACHE_BREAKPOINT_KEY}
+                if isinstance(m, dict) else m
+                for m in messages
+            ]
+        return _orig(self, messages, *args, **kwargs)
+
+    _CrewLLM.call = _call_patched
+
+_patch_crewai_llm_strip_cache_breakpoint()
 
 configure_logging()
 log = logging.getLogger(__name__)

@@ -61,5 +61,10 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr = SecretStr("")
     openai_model: str = "gpt-4o-mini"
 
+    # GitHub Models (OpenAI-compatible endpoint, PAT auth)
+    github_api_key: SecretStr = SecretStr("")
+    github_model: str = "gpt-4o-mini"
+    github_base_url: str = "https://models.inference.ai.azure.com"
+
 
 settings = Settings()

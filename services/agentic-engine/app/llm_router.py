@@ -98,6 +98,16 @@ def _build_entry(name: str) -> tuple[str, dict[str, Any]] | None:
             return None
         return (settings.openai_model, {"api_key": key})
 
+    if name == "github":
+        key = settings.github_api_key.get_secret_value()
+        if not key:
+            log.debug("Skipping github — no AGENTIC_GITHUB_API_KEY")
+            return None
+        return (
+            f"openai/{settings.github_model}",
+            {"api_key": key, "api_base": settings.github_base_url},
+        )
+
     if name == "ollama":
         # Ollama needs no key; always included as last resort
         return (
