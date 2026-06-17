@@ -1,9 +1,10 @@
 """Synthesis engines.
 
 `CrewEngine` is the production backend: a CrewAI crew of three agents
-(Technical Analyst, Fundamental Analyst, Risk Manager) running on AWS
-Bedrock. `DeterministicEngine` is a rule-based fallback for dev/CI and
-degraded mode — same contract, no LLM calls. Selected via
+(Technical Analyst, Fundamental Analyst, Risk Manager) driven by the
+LLM router (Groq → Gemini → OpenAI → Ollama; Bedrock exclusively when
+AGENTIC_ENVIRONMENT=aws). `DeterministicEngine` is a rule-based fallback
+for dev/CI and degraded mode — same contract, no LLM calls. Selected via
 `AGENTIC_ENGINE_BACKEND`.
 """
 from __future__ import annotations
@@ -166,17 +167,15 @@ class DeterministicEngine:
 
 
 class CrewEngine:
-    """CrewAI crew on AWS Bedrock producing the ProbabilityReport."""
+    """CrewAI crew driven by the LLM router (Groq/Gemini/OpenAI/Ollama/Bedrock)."""
 
     name = "crew"
 
     def __init__(self) -> None:
-        from crewai import LLM, Agent
+        from crewai import Agent
+        from app.llm_router import pick_crewai_llm
 
-        self._llm = LLM(
-            model=f"bedrock/{settings.bedrock_model_id}",
-            temperature=0.2,
-        )
+        self._llm = pick_crewai_llm()
         self._agents = {
             key: Agent(llm=self._llm, verbose=False, allow_delegation=False, **spec)
             for key, spec in (
@@ -230,7 +229,7 @@ class CrewEngine:
             process=Process.sequential,
             verbose=False,
         )
-        run.log("crew_kickoff", {"model": settings.bedrock_model_id})
+        run.log("crew_kickoff", {"model": str(self._llm.model)})
         result = crew.kickoff(inputs=inputs)
         for task_output in result.tasks_output:
             run.log("agent_output", {"agent": task_output.agent, "summary": task_output.summary})
