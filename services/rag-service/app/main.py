@@ -17,6 +17,7 @@ from app import __version__
 from app.api import router
 from app.config import settings
 from app.logging_conf import configure_logging
+from app.otel import configure_otel
 from app.store import build_store
 from app.summarizer import build_summarizer
 
@@ -48,6 +49,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(router)
+configure_otel(app, "rag-service")
 
 _STARTED_AT = time.monotonic()
 

@@ -16,6 +16,7 @@ from typing import Protocol
 
 from app.config import settings
 from app.memory import build_memory, format_prior_context
+from app.otel import get_tracer
 from app.prompts import (
     FUNDAMENTAL_ANALYST,
     RISK_MANAGER,
@@ -249,9 +250,23 @@ class CrewEngine:
             verbose=False,
         )
         run.log("crew_kickoff", {"model": str(self._llm.model)})
-        result = crew.kickoff(inputs=inputs)
-        for task_output in result.tasks_output:
-            run.log("agent_output", {"agent": task_output.agent, "summary": task_output.summary})
+        tracer = get_tracer("agentic-engine.crew")
+        with tracer.start_as_current_span("synthesis") as span:
+            if span is not None:
+                span.set_attribute("synthesis.ticker", req.ticker.upper())
+                span.set_attribute("synthesis.run_id", run.run_id)
+                span.set_attribute("synthesis.horizon_days", req.horizon_days)
+                span.set_attribute("synthesis.engine", self.name)
+                span.set_attribute("synthesis.llm_model", str(self._llm.model))
+                span.set_attribute("synthesis.memory_turns", len(prior_turns))
+            result = crew.kickoff(inputs=inputs)
+            for task_output in result.tasks_output:
+                run.log("agent_output", {"agent": task_output.agent, "summary": task_output.summary})
+                if span is not None:
+                    span.add_event(
+                        "agent_complete",
+                        {"agent": task_output.agent, "summary": (task_output.summary or "")[:200]},
+                    )
 
         report: ProbabilityReport = result.pydantic
         # authoritative fields are set server-side regardless of model output

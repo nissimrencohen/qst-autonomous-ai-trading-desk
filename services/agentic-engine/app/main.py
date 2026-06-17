@@ -21,6 +21,7 @@ from app.api import router
 from app.config import settings
 from app.engine import build_engine
 from app.logging_conf import configure_logging
+from app.otel import configure_otel
 from app.runs import RunStore
 
 # CrewAI >=0.80 injects cache_breakpoint into system messages for Anthropic
@@ -92,6 +93,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(router)
+configure_otel(app, "agentic-engine")
 
 _STARTED_AT = time.monotonic()
 

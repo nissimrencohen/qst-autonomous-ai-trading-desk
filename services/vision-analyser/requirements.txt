@@ -7,3 +7,8 @@ pillow>=10.0
 numpy>=1.26
 torch>=2.4
 torchvision>=0.19
+# OpenTelemetry distributed tracing (OTLP HTTP, no gRPC dependency)
+opentelemetry-sdk>=1.27
+opentelemetry-exporter-otlp-proto-http>=1.27
+opentelemetry-instrumentation-fastapi>=0.48b0
+opentelemetry-instrumentation-httpx>=0.48b0

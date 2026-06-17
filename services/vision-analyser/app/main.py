@@ -16,6 +16,7 @@ from app import __version__
 from app.api import router
 from app.config import settings
 from app.logging_conf import configure_logging
+from app.otel import configure_otel
 
 configure_logging()
 log = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(router)
+configure_otel(app, "vision-analyser")
 
 _STARTED_AT = time.monotonic()
 

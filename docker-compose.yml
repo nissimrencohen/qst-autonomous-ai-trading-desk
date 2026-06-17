@@ -4,12 +4,21 @@ x-defaults: &defaults
   restart: unless-stopped
   networks: [trading-desk]
 
+# Shared OTel env block — merged into every microservice.
+# Leave OTEL_EXPORTER_OTLP_ENDPOINT empty to disable tracing (default).
+# Point it at any OTLP-HTTP collector (e.g. http://otel-collector:4318).
+x-otel-env: &otel-env
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+  OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+
 services:
   rag-service:
     <<: *defaults
     build: ./services/rag-service
     ports: ["8001:8001"]
     environment:
+      <<: *otel-env
+      OTEL_SERVICE_NAME: rag-service
       RAG_ENVIRONMENT: ${ENVIRONMENT:-dev}
       RAG_LOG_LEVEL: ${LOG_LEVEL:-INFO}
       RAG_STORE_BACKEND: chroma
@@ -39,6 +48,8 @@ services:
     build: ./services/vision-analyser
     ports: ["8002:8002"]
     environment:
+      <<: *otel-env
+      OTEL_SERVICE_NAME: vision-analyser
       VISION_ENVIRONMENT: ${ENVIRONMENT:-dev}
       VISION_LOG_LEVEL: ${LOG_LEVEL:-INFO}
       VISION_MODEL_BACKEND: ${VISION_MODEL_BACKEND:-heuristic}
@@ -49,6 +60,8 @@ services:
     build: ./services/agentic-engine
     ports: ["8003:8003"]
     environment:
+      <<: *otel-env
+      OTEL_SERVICE_NAME: agentic-engine
       AGENTIC_ENVIRONMENT: ${ENVIRONMENT:-dev}
       AGENTIC_LOG_LEVEL: ${LOG_LEVEL:-INFO}
       AGENTIC_ENGINE_BACKEND: ${AGENTIC_ENGINE_BACKEND:-deterministic}
@@ -83,6 +96,8 @@ services:
     build: ./services/guardrails-service
     ports: ["8004:8004"]
     environment:
+      <<: *otel-env
+      OTEL_SERVICE_NAME: guardrails-service
       GUARDRAILS_ENVIRONMENT: ${ENVIRONMENT:-dev}
       GUARDRAILS_LOG_LEVEL: ${LOG_LEVEL:-INFO}
       GUARDRAILS_BACKEND: ${GUARDRAILS_BACKEND:-rules}
@@ -108,6 +123,19 @@ services:
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
     depends_on: [rag-service, vision-analyser]
+
+  # ── Observability stack (opt-in) ────────────────────────────────────────────
+  # Start with: docker compose --profile observability up -d
+  # Jaeger all-in-one: OTLP HTTP on :4318, UI on :16686
+  otel-collector:
+    <<: *defaults
+    image: jaegertracing/all-in-one:1.60
+    profiles: [observability]
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4318:4318"     # OTLP HTTP receiver
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
 
 networks:
   trading-desk:
