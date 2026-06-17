@@ -66,5 +66,11 @@ class Settings(BaseSettings):
     github_model: str = "gpt-4o-mini"
     github_base_url: str = "https://models.inference.ai.azure.com"
 
+    # ---------------------------------------------------------------- Helicone (proxy-based caching + cost analytics)
+    # Set RAG_HELICONE_API_KEY to route Groq/OpenAI calls through the
+    # Helicone proxy.  Leave empty to call providers directly (default).
+    helicone_api_key: SecretStr = SecretStr("")
+    helicone_cache_enabled: bool = True
+
 
 settings = Settings()

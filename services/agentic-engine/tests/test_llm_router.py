@@ -25,9 +25,15 @@ def _fake_settings(**overrides):
         gemini_model="gemini/gemini-2.0-flash",
         openai_api_key=_secret(""),
         openai_model="gpt-4o-mini",
+        github_api_key=_secret(""),
+        github_model="gpt-4o-mini",
+        github_base_url="https://models.inference.ai.azure.com",
         ollama_url="http://localhost:11434",
         ollama_model="qwen3:8b",
         bedrock_model_id="anthropic.claude-sonnet-4-6",
+        # Helicone — disabled by default in tests
+        helicone_api_key=_secret(""),
+        helicone_cache_enabled=True,
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)

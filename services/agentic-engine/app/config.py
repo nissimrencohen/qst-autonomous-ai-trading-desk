@@ -62,6 +62,14 @@ class Settings(BaseSettings):
     ollama_url: str = "http://host.docker.internal:11434"
     ollama_model: str = "qwen3:8b"
 
+    # ---------------------------------------------------------------- Helicone (proxy-based caching + cost analytics)
+    # Set AGENTIC_HELICONE_API_KEY to route Groq/OpenAI calls through the
+    # Helicone proxy.  Leave empty to call providers directly (default).
+    helicone_api_key: SecretStr = SecretStr("")
+    # When True (default), sends Helicone-Cache-Enabled: true on every proxied
+    # request so repeated identical prompts are served from Helicone's cache.
+    helicone_cache_enabled: bool = True
+
     # ---------------------------------------------------------------- web search
     web_search_enabled: bool = True
     # Tavily gives higher-quality financial results; falls back to DuckDuckGo if empty.

@@ -11,14 +11,22 @@ x-otel-env: &otel-env
   OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
   OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
 
+# Helicone proxy env block — merged into LLM-calling services (rag, agentic).
+# Leave HELICONE_API_KEY empty to call providers directly (default).
+x-helicone-env: &helicone-env
+  HELICONE_API_KEY: ${HELICONE_API_KEY:-}
+  HELICONE_CACHE_ENABLED: ${HELICONE_CACHE_ENABLED:-true}
+
 services:
   rag-service:
     <<: *defaults
     build: ./services/rag-service
     ports: ["8001:8001"]
     environment:
-      <<: *otel-env
+      <<: [*otel-env, *helicone-env]
       OTEL_SERVICE_NAME: rag-service
+      RAG_HELICONE_API_KEY: ${HELICONE_API_KEY:-}
+      RAG_HELICONE_CACHE_ENABLED: ${HELICONE_CACHE_ENABLED:-true}
       RAG_ENVIRONMENT: ${ENVIRONMENT:-dev}
       RAG_LOG_LEVEL: ${LOG_LEVEL:-INFO}
       RAG_STORE_BACKEND: chroma
@@ -60,8 +68,10 @@ services:
     build: ./services/agentic-engine
     ports: ["8003:8003"]
     environment:
-      <<: *otel-env
+      <<: [*otel-env, *helicone-env]
       OTEL_SERVICE_NAME: agentic-engine
+      AGENTIC_HELICONE_API_KEY: ${HELICONE_API_KEY:-}
+      AGENTIC_HELICONE_CACHE_ENABLED: ${HELICONE_CACHE_ENABLED:-true}
       AGENTIC_ENVIRONMENT: ${ENVIRONMENT:-dev}
       AGENTIC_LOG_LEVEL: ${LOG_LEVEL:-INFO}
       AGENTIC_ENGINE_BACKEND: ${AGENTIC_ENGINE_BACKEND:-deterministic}
