@@ -21,6 +21,14 @@ services:
       RAG_AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      # LLM router — multi-provider fallback chain for summarizer_backend=litellm
+      RAG_LLM_PROVIDER_CHAIN: ${LLM_PROVIDER_CHAIN:-groq,gemini,openai,ollama}
+      RAG_GROQ_API_KEY: ${GROQ_API_KEY:-}
+      RAG_GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+      RAG_GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      RAG_GEMINI_MODEL: ${GEMINI_MODEL:-gemini/gemini-2.0-flash}
+      RAG_OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      RAG_OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
     volumes:
       - chroma_data:/srv/chroma_db
 
@@ -47,6 +55,24 @@ services:
       AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      # LLM router — multi-provider fallback chain
+      AGENTIC_LLM_PROVIDER_CHAIN: ${LLM_PROVIDER_CHAIN:-groq,gemini,openai,ollama}
+      AGENTIC_GROQ_API_KEY: ${GROQ_API_KEY:-}
+      AGENTIC_GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+      AGENTIC_GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      AGENTIC_GEMINI_MODEL: ${GEMINI_MODEL:-gemini/gemini-2.0-flash}
+      AGENTIC_OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AGENTIC_OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      AGENTIC_OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      AGENTIC_OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
+      # Web search
+      AGENTIC_WEB_SEARCH_ENABLED: ${WEB_SEARCH_ENABLED:-true}
+      AGENTIC_TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      # Conversational memory
+      AGENTIC_MEMORY_BACKEND: ${MEMORY_BACKEND:-sqlite}
+      AGENTIC_MEMORY_DB_PATH: /srv/data/agent_memory.db
+    volumes:
+      - agent_memory:/srv/data
 
   guardrails-service:
     <<: *defaults
@@ -101,3 +127,4 @@ networks:
 volumes:
   chroma_data:
   n8n_data:
+  agent_memory:

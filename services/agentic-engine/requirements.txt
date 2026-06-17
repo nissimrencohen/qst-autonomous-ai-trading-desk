@@ -2,4 +2,12 @@ fastapi==0.115.*
 uvicorn[standard]==0.34.*
 pydantic-settings==2.*
 crewai>=0.80
+crewai-tools>=0.15
 boto3>=1.34
+# LLM router — unified multi-provider API with built-in fallback
+litellm>=1.35
+# Web search tools
+duckduckgo-search>=6.0
+tavily-python>=0.3
+# Conversational memory (SQLite backend)
+sqlalchemy>=2.0
