@@ -89,7 +89,7 @@
         "url": "http://host.docker.internal:11434/api/generate",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: 'qwen3:8b', stream: false, format: 'json', think: false, system: \"You are the trading desk's request extractor. You receive ONE free-text analyst request. Extract the trade parameters and answer with ONLY a JSON object, no prose: {\\\"ticker\\\": string|null, \\\"horizon_days\\\": integer|null}. Rules: (1) ticker is the exchange symbol of the single primary asset; map company names to symbols ONLY for this desk's known instruments: Nvidia->NVDA, Elbit Systems->ESLT, Next Vision->NXSN, Tondo Smart->TOND, Cue Biopharma->CUE; any other asset -> use the symbol if explicitly given, else null. (2) horizon_days converts phrases: 'next week'->7, 'a month'/'monthly expiry'->30, 'a quarter'->90, 'a year'->365; no time phrase -> null. (3) Multiple assets -> ticker null. (4) Never invent symbols; never add fields.\", prompt: $json.question }) }}",
+        "jsonBody": "={{ JSON.stringify({ model: 'qwen3:8b', stream: false, format: 'json', think: false, system: \"You are the trading desk's request extractor. You receive ONE free-text analyst request. Extract the trade parameters and answer with ONLY a JSON object, no prose: {\\\"ticker\\\": string|null, \\\"horizon_days\\\": integer|null}. Rules: (1) FIRST check if any of the desk's known symbols appears literally in the text (exact uppercase match): NVDA, ESLT, NXSN, TOND, CUE — if found, return that symbol immediately. (2) Otherwise map company names: Nvidia->NVDA, Elbit Systems->ESLT, Next Vision->NXSN, Tondo Smart->TOND, Cue Biopharma->CUE. (3) Any other asset: use the symbol if explicitly given, else null. (4) horizon_days converts phrases: 'next week'->7, 'a month'/'monthly expiry'->30, 'a quarter'->90, 'a year'->365; no time phrase -> null. (5) Multiple assets -> ticker null. (6) Never invent symbols; never add fields.\", prompt: $json.question }) }}",
         "options": { "timeout": 120000 }
       }
     },
@@ -267,7 +267,7 @@
         "url": "http://guardrails-service:8004/validate/output",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ text: [$json.technical_view.rationale, $json.fundamental_view.rationale, $json.risk_assessment.notes].join(' '), evidence: ($('RAG Query').first().json.retrieved ?? []).map(d => d.text).concat([$('RAG Query').first().json.summary ?? '']) }) }}",
+        "jsonBody": "={{ JSON.stringify({ text: ($json.fundamental_view.key_drivers ?? []).join(' '), evidence: ($('RAG Query').first().json.retrieved ?? []).map(d => d.text).concat([$('RAG Query').first().json.summary ?? '']) }) }}",
         "options": { "timeout": 60000 }
       }
     },

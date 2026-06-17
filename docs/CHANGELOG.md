@@ -6,7 +6,18 @@ newest first. Format loosely follows [Keep a Changelog](https://keepachangelog.c
 
 ## [Unreleased]
 
-_(post-1.0 backlog: EC2 deployment, crew confidence-weighting V6, Family-1 self-correction case)_
+_(post-1.0 backlog: EC2 deployment, crew confidence-weighting V6)_
+
+## [1.0.4] — 2026-06-17 · Output-rail + extractor bug fixes
+
+### Fixed
+- **`hallucinated_metric` false-positive for CUE/TOND**: `risk_assessment.notes` contained `"2%"` (policy text, not a market claim). The output-rail `_CLAIM_NUMBER` regex matched it, and the substring check `"2%" in evidence_blob` passed for NVDA (whose seed docs happen to include `"52%"`) but failed for tickers whose docs contain no `X2%` substring. Fix: (a) changed DeterministicEngine `notes` to use `"max position N pct."` notation instead of `%`; (b) changed n8n Guardrails Output node to check `fundamental_view.key_drivers` (actual market claims derived from RAG) instead of `risk_assessment.notes` (internal policy text).
+- **Ollama extractor returns NVDA for CUE free-text**: n8n extractor prompt mapped company names before checking literal symbols. The question `"... for CUE into the monthly expiry"` was occasionally misidentified as NVDA. Fix: added explicit Rule 1 — if any known desk symbol (NVDA, ESLT, NXSN, TOND, CUE) appears literally in the text, return it immediately before any name-to-symbol mapping. Verified: extractor now returns `CUE` correctly.
+
+### Verified
+- CUE free-text (no form ticker) → extractor returns `CUE`, output_rail `pass`, full report delivered.
+- CUE explicit ticker → output_rail `pass` (was blocked before fix).
+- 34/34 unit tests still passing.
 
 ## [1.0.2] — 2026-06-11 · Live local LLM layer (Ollama qwen3:8b)
 

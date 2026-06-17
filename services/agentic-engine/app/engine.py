@@ -157,7 +157,7 @@ class DeterministicEngine:
                 risk_level=risk_level,
                 key_risks=key_risks,
                 max_position_pct=max_pos,
-                notes="Deterministic policy: binary catalysts cap exposure at 2%.",
+                notes=f"Deterministic policy: max position {int(max_pos)} pct.",
             ),
             confidence=min(confidence, 1.0),
             caveats=caveats,
