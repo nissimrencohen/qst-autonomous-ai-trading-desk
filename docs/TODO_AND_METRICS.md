@@ -55,6 +55,12 @@
 ### Domain / Test Data
 - [x] Seed data + test suites using NVDA, ESLT (Elbit), NXSN (Next Vision), TOND (Tondo Smart), CUE — realistic options scenarios (`data/seed/financial_docs.json`, Step 3)
 
+## Cold-Start Verification Log
+
+| Date | Result | Notes |
+|---|---|---|
+| 2026-06-17 | ✅ 34/34 passed · smoke PASSED | Full cold-start: compose down → up; all 7 endpoints healthy; happy path 98.5 s (cold Ollama); insider blocked ✅ |
+
 ## Metrics (populated as components land)
 
 | Metric | Target | Current |
@@ -64,4 +70,4 @@
 | RAG retrieval hit rate (golden questions) | ≥ 85% | 100% on E2E golden questions (memory store; chroma eval pending corpus growth) |
 | Guardrails: disallowed-input block rate | 100% on red-team set | 100% (6/6, eval 2026-06-10) |
 | Guardrails: false-positive block rate | < 5% | 0% on 4-case legit set (small n) |
-| E2E latency (request → validated report) | < 30 s | **1.50 s** dev backends · **~68 s** with live local qwen3:8b summarizer (CPU-bound; ⚠ exceeds target — Bedrock path expected well under, local path acceptable for demo) |
+| E2E latency (request → validated report) | < 30 s | **1.50 s** dev backends · **~68 s** warm / **~98 s** cold-start with live local qwen3:8b (CPU-bound; ⚠ exceeds target — Bedrock path expected well under, local path acceptable for demo) |
