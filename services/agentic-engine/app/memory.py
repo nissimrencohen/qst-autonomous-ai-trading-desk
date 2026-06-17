@@ -79,6 +79,7 @@ class _SqliteMemory:
         from pathlib import Path
         from sqlalchemy import Column, Integer, String, Text, create_engine
         from sqlalchemy.orm import DeclarativeBase, Session
+        from sqlalchemy.pool import NullPool
 
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
@@ -91,7 +92,8 @@ class _SqliteMemory:
             timestamp = Column(String(32), nullable=False)
             data_json = Column(Text, nullable=False)
 
-        engine = create_engine(f"sqlite:///{db_path}", echo=False)
+        # NullPool closes each connection immediately after use — no file-lock on Windows
+        engine = create_engine(f"sqlite:///{db_path}", echo=False, poolclass=NullPool)
         Base.metadata.create_all(engine)
 
         self._engine = engine
