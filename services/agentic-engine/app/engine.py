@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Protocol
 
 from app.config import settings
+from app.memory import build_memory, format_prior_context
 from app.prompts import (
     FUNDAMENTAL_ANALYST,
     RISK_MANAGER,
@@ -177,6 +178,7 @@ class CrewEngine:
         from app.web_tools import build_search_tools
 
         self._llm = pick_crewai_llm()
+        self._memory = build_memory()
         search_tools = build_search_tools()
         self._agents = {
             "technical": Agent(
@@ -197,6 +199,12 @@ class CrewEngine:
     def synthesize(self, req: SynthesizeRequest, run: RunHandle) -> ProbabilityReport:
         from crewai import Crew, Process, Task
 
+        # load prior turns for this ticker so the Fundamental Analyst can
+        # reference previous conclusions when RAG coverage is thin
+        prior_turns = self._memory.load(req.ticker)
+        prior_context = format_prior_context(prior_turns)
+        run.log("memory_load", {"ticker": req.ticker.upper(), "turns": len(prior_turns)})
+
         inputs = {
             "ticker": req.ticker.upper(),
             "question": req.question,
@@ -206,6 +214,7 @@ class CrewEngine:
             ),
             "fundamental_thesis": req.rag.summary
             or "The retrieved context does not cover this.",
+            "prior_context": prior_context,
         }
 
         technical_task = Task(
@@ -218,10 +227,11 @@ class CrewEngine:
         )
         fundamental_task = Task(
             description=(
-                "RAG briefing:\n{fundamental_thesis}\n"
+                "RAG briefing:\n{fundamental_thesis}\n\n"
+                "Prior analysis history for {ticker}:\n{prior_context}\n\n"
                 "List the key fundamental drivers for {ticker} relevant to: {question}"
             ),
-            expected_output="2-4 drivers, each with [source: ...] attribution.",
+            expected_output="2-4 drivers, each with [source: ...] or [web: <url>] attribution.",
             agent=self._agents["fundamental"],
         )
         synthesis_task = Task(
@@ -245,7 +255,7 @@ class CrewEngine:
 
         report: ProbabilityReport = result.pydantic
         # authoritative fields are set server-side regardless of model output
-        return report.model_copy(
+        report = report.model_copy(
             update={
                 "run_id": run.run_id,
                 "ticker": req.ticker.upper(),
@@ -255,6 +265,23 @@ class CrewEngine:
                 "engine_backend": self.name,
             }
         )
+
+        # persist this turn so future runs can reference it
+        self._memory.save(
+            req.ticker,
+            {
+                "timestamp": report.generated_at,
+                "ticker": report.ticker,
+                "question": report.question,
+                "horizon_days": report.horizon_days,
+                "bull_prob": report.probabilities.bullish,
+                "risk_level": report.risk_assessment.risk_level,
+                "key_drivers": report.fundamental_view.key_drivers,
+                "engine_backend": report.engine_backend,
+            },
+        )
+        run.log("memory_save", {"ticker": report.ticker})
+        return report
 
 
 def build_engine() -> SynthesisEngine:

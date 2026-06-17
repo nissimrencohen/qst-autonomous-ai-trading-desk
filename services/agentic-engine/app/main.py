@@ -29,7 +29,12 @@ log = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     app.state.engine = build_engine()
     app.state.runs = RunStore()
-    log.info("engine=%s model=%s", app.state.engine.name, settings.bedrock_model_id)
+    log.info(
+        "engine=%s backend=%s memory=%s",
+        app.state.engine.name,
+        settings.engine_backend,
+        settings.memory_backend,
+    )
     yield
 
 
