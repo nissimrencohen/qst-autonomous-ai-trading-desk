@@ -3,16 +3,56 @@ uvicorn[standard]==0.34.*
 pydantic-settings==2.*
 crewai>=0.80
 crewai-tools>=0.15
+# Model Context Protocol — standards-compliant market-data tool server
+# (app/mcp_server.py) used by the in-process CrewAI MCP tools.
+# NOTE: the optional MCPServerAdapter (stdio) round-trip path additionally needs
+# `mcpadapt`; install `crewai-tools[mcp]` for it. It's intentionally omitted here
+# to keep dependency resolution clean — the default in-process path needs only `mcp`,
+# and the adapter path degrades gracefully when mcpadapt is absent.
+mcp>=1.6.0
 boto3>=1.34
 # LLM router — unified multi-provider API with built-in fallback
 litellm>=1.35
 # Web search tools
 duckduckgo-search>=6.0
 tavily-python>=0.3
+# Market data — live quotes/fundamentals, VIX term structure, option chains
+yfinance>=0.2.40
+# News & sentiment (optional, key-gated) for the News & Geopolitical analyst
+finnhub-python>=2.4
 # Conversational memory (SQLite backend)
 sqlalchemy>=2.0
-# OpenTelemetry distributed tracing (OTLP HTTP, no gRPC dependency)
-opentelemetry-sdk>=1.27
-opentelemetry-exporter-otlp-proto-http>=1.27
-opentelemetry-instrumentation-fastapi>=0.48b0
-opentelemetry-instrumentation-httpx>=0.48b0
+# OpenTelemetry distributed tracing — pinned to match crewai's requirement (~=1.34.0).
+# sdk/api/exporter share 1.34.0; instrumentation + semantic-conventions share 0.55b0.
+# Verified coherent: sdk 1.34.0 requires api==1.34.0 + semconv==0.55b0;
+# crewai 1.14.x requires opentelemetry-api~=1.34.0 and sdk~=1.34.0.
+opentelemetry-api==1.34.0
+opentelemetry-sdk==1.34.0
+opentelemetry-semantic-conventions==0.55b0
+opentelemetry-exporter-otlp-proto-http==1.34.0
+opentelemetry-instrumentation-fastapi==0.55b0
+opentelemetry-instrumentation-httpx==0.55b0
+# Langfuse self-hosted prompt tracing (used by litellm success_callback)
+langfuse>=2.0,<3
+# Evaluation hooks (Step 4) — LLM-as-judge metrics (faithfulness, answer_relevancy)
+# deepeval >=2.0 uses opentelemetry-api>=1.24.0,<2.0.0 (compatible with 1.34.0).
+# Do NOT downgrade below 2.0 — 1.x pins opentelemetry-api~=1.24.0 which conflicts
+# with crewai's opentelemetry-api~=1.34.0 requirement.
+deepeval>=2.0
+# v1.4: PostgreSQL durable RunStore
+psycopg2-binary>=2.9
+# v1.4: Alpaca broker integration (paper + live)
+alpaca-trade-api>=3.0
+# v1.4: Polygon.io market data (primary provider)
+polygon-api-client>=1.12
+# JWT authentication + DB-backed RBAC password hashing
+python-jose[cryptography]>=3.3
+# bcrypt direct (passlib 1.7.x is incompatible with bcrypt >= 4.1)
+bcrypt>=4.1
+# Social media ingestion pipeline
+# asyncpraw: fully async Reddit client (PRAW is sync and blocks the event loop)
+asyncpraw>=7.7
+# pyrogram: async Telegram client (user-API + bot-API, no_updates read-only mode)
+# tgcrypto is an optional C-extension speedup; removed because the slim Python image
+# lacks gcc. Pyrogram falls back to pyaes (pure Python) automatically.
+pyrogram>=2.0

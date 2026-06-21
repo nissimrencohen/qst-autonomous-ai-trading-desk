@@ -5,10 +5,18 @@ httpx>=0.27
 chromadb>=0.5,<2
 sentence-transformers>=3.0
 boto3>=1.34
+pypdf>=4.0
+python-multipart>=0.0.9
 # LLM router — unified multi-provider API with built-in fallback
 litellm>=1.35
-# OpenTelemetry distributed tracing (OTLP HTTP, no gRPC dependency)
-opentelemetry-sdk>=1.27
-opentelemetry-exporter-otlp-proto-http>=1.27
-opentelemetry-instrumentation-fastapi>=0.48b0
-opentelemetry-instrumentation-httpx>=0.48b0
+# OpenTelemetry distributed tracing — pinned to 1.34.0/0.55b0 coherent set.
+# Matches crewai's ~=1.34.0 requirement; verified via PyPI dependency graph.
+opentelemetry-api==1.34.0
+opentelemetry-sdk==1.34.0
+opentelemetry-semantic-conventions==0.55b0
+opentelemetry-exporter-otlp-proto-http==1.34.0
+opentelemetry-instrumentation-fastapi==0.55b0
+opentelemetry-instrumentation-httpx==0.55b0
+# Langfuse self-hosted prompt tracing (used by litellm success_callback)
+langfuse>=2.0,<3
+yfinance==0.2.*

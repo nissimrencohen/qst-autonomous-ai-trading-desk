@@ -22,7 +22,7 @@ def _fake_settings(**overrides):
         groq_api_key=_secret(""),
         groq_model="llama-3.3-70b-versatile",
         google_api_key=_secret(""),
-        gemini_model="gemini/gemini-2.0-flash",
+        gemini_model="gemini/gemini-2.5-flash",
         openai_api_key=_secret(""),
         openai_model="gpt-4o-mini",
         github_api_key=_secret(""),
@@ -34,6 +34,12 @@ def _fake_settings(**overrides):
         # Helicone — disabled by default in tests
         helicone_api_key=_secret(""),
         helicone_cache_enabled=True,
+        # Langfuse — disabled by default in tests
+        langfuse_public_key=_secret(""),
+        langfuse_secret_key=_secret(""),
+        langfuse_host="http://langfuse:3000",
+        # FORCE_LOCAL_OLLAMA — off by default in tests
+        force_local_ollama=False,
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -51,7 +57,8 @@ def test_provider_chain_no_keys_falls_back_to_ollama():
 
     assert len(chain) == 1
     model, kwargs = chain[0]
-    assert model.startswith("ollama/")
+    # Ollama uses OpenAI-compat endpoint: model string is "openai/<ollama_model>"
+    assert model.startswith("openai/")
     assert "api_base" in kwargs
 
 
@@ -65,8 +72,9 @@ def test_provider_chain_groq_key_puts_groq_first():
         chain = router_module.provider_chain()
 
     assert chain[0][0].startswith("groq/")
-    # Ollama must still appear as last resort
-    assert any(m.startswith("ollama/") for m, _ in chain)
+    # Ollama uses openai-compat endpoint; appears at end of chain as last resort
+    assert any("ollama_model" in str(kwargs) or kwargs.get("api_key") == "ollama"
+               for _, kwargs in chain)
 
 
 def test_provider_chain_aws_mode_returns_bedrock_only():
@@ -114,7 +122,8 @@ def test_provider_chain_partial_keys_skips_empty_providers():
     assert not any(m.startswith("groq/") for m in models)
     assert any(m.startswith("gemini/") for m in models)
     assert not any(m.startswith("gpt") for m in models)
-    assert any(m.startswith("ollama/") for m in models)
+    # Ollama uses openai-compat format: "openai/<model>" with api_key="ollama"
+    assert any(kwargs.get("api_key") == "ollama" for _, kwargs in chain)
 
 
 # ── LiteLLMSummarizer fallback test (rag-service) ─────────────────────────────

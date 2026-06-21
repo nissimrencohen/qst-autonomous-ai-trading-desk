@@ -25,13 +25,21 @@ _ILLEGAL_PATTERNS: list[tuple[str, re.Pattern]] = [
         "sanctioned_or_illicit_asset",
         re.compile(r"\b(sanctioned|ofac[- ]listed|embargoed|dark\s*web|stolen)\b.{0,40}\b(stock|asset|token|coin|securit\w+|compan\w+)\b|\b(launder\w+)\b", re.I),
     ),
+    (
+        "prompt_injection",
+        re.compile(r"\b(ignore all (caveats|instructions|previous|rules)|disregard (rules|instructions))\b", re.I),
+    ),
+    (
+        "absolute_guarantee_demand",
+        re.compile(r"\b(guarantee\b.*return|zero risk|financial advice|100% (certain|sure))\b", re.I),
+    ),
 ]
 
 _FINANCE_SIGNAL = re.compile(
     r"\b(stocks?|shares?|options?|calls?|puts?|strikes?|expiry|earnings|revenue|"
     r"market|trad\w+|invest\w+|portfolio|ticker|price|valuation|backlog|"
     r"volatility|probabilit\w+|bullish|bearish|breakout|support|resistance|"
-    r"etf|bond|dividend|margin|short|long)\b",
+    r"etf|bond|dividend|margin|short|long|vix|macro|regime|contango|backwardation)\b",
     re.I,
 )
 

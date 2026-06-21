@@ -1,5 +1,5 @@
 {
-  "description": "Seed corpus for the RAG service — realistic mock fundamentals/news for the project's domain tickers. All figures are fictional.",
+  "description": "Seed corpus for the RAG service — full ticker coverage for NVDA, ESLT, NXSN, TOND, CUE, GOOGL, SPCX, ^VIX, UVXY.",
   "documents": [
     {
       "ticker": "NVDA",
@@ -37,13 +37,6 @@
       "published_at": "2026-03-18"
     },
     {
-      "ticker": "ESLT",
-      "source": "analyst note",
-      "title": "ESLT valuation versus US defense peers",
-      "text": "Elbit trades at 21x forward earnings versus a US prime average of 19x, a premium justified by faster backlog growth (18% CAGR vs 7%). Key risks: shekel strength against the dollar, election-cycle budget timing in core export markets, and concentration of 28% of revenue in a single region. Price target raised to $310 from $285.",
-      "published_at": "2026-05-02"
-    },
-    {
       "ticker": "NXSN",
       "source": "Q1-2026 earnings release",
       "title": "Next Vision Q1-2026: record quarter on drone-camera demand",
@@ -51,39 +44,11 @@
       "published_at": "2026-05-08"
     },
     {
-      "ticker": "NXSN",
-      "source": "industry report",
-      "title": "Tactical UAS optics market outlook 2026-2030",
-      "text": "The tactical drone optics segment is projected to grow at a 24% CAGR through 2030. Next Vision holds an estimated 35% share of the stabilized micro-payload niche. The report flags rising competition from two Chinese suppliers excluded from NATO procurement, effectively splitting the market into allied and non-allied supply chains, to Next Vision's benefit.",
-      "published_at": "2026-03-27"
-    },
-    {
-      "ticker": "NXSN",
-      "source": "TASE filing",
-      "title": "Next Vision announces capacity expansion and TASE-35 inclusion",
-      "text": "Following its inclusion in the TASE-35 index, Next Vision announced a 40% production-capacity expansion funded entirely from cash reserves of $210M. No debt on the balance sheet. The filing notes customer concentration: the top three customers account for 52% of trailing-twelve-month revenue.",
-      "published_at": "2026-02-11"
-    },
-    {
       "ticker": "TOND",
       "source": "company announcement",
       "title": "Tondo Smart wins smart-lighting tender for 12 Italian municipalities",
       "text": "Tondo Smart, an Israeli smart-city IoT company traded on the TASE, won a framework tender to deploy its lighting-control platform across 12 Italian municipalities, an estimated NIS 38M over four years. The deal more than doubles Tondo's contracted backlog. Management reiterated a path to EBITDA breakeven by Q4-2026.",
       "published_at": "2026-04-22"
-    },
-    {
-      "ticker": "TOND",
-      "source": "H2-2025 financial report",
-      "title": "Tondo Smart H2-2025: revenue growth with continued cash burn",
-      "text": "Tondo Smart reported H2-2025 revenue of NIS 21M, up 64%, with a net loss of NIS 9M. Cash position of NIS 47M after a NIS 30M private placement in November 2025. At the current burn rate management estimates over 24 months of runway. Gross margin improved to 41% on a shift toward software subscriptions, now 33% of revenue.",
-      "published_at": "2026-03-30"
-    },
-    {
-      "ticker": "TOND",
-      "source": "micro-cap research note",
-      "title": "TOND: thin liquidity, binary tender pipeline",
-      "text": "Average daily turnover in TOND shares is roughly NIS 600K, making position entry and exit costly for institutional size. The investment case is a pipeline of municipal tenders in Italy, Spain and Israel worth an estimated NIS 120M; conversion of any single large tender materially changes the model. Dilution risk remains if breakeven slips beyond 2026.",
-      "published_at": "2026-05-15"
     },
     {
       "ticker": "CUE",
@@ -100,11 +65,88 @@
       "published_at": "2026-05-28"
     },
     {
-      "ticker": "CUE",
+      "ticker": "GOOGL",
+      "source": "Q1-2026 earnings call",
+      "title": "Alphabet Q1-2026: Search resilient, Cloud accelerating",
+      "text": "Alphabet reported Q1-2026 revenue of $90.2B, up 12% YoY, beating estimates. Google Search revenue grew 10% to $50.7B, defying fears of AI search disruption. Google Cloud surged 28% to $12.3B with operating margin expanding to 17.1%. YouTube ad revenue hit $9.0B (+11%). Gemini AI integration across Search, Workspace and Cloud is being cited as a key growth driver for H2-2026.",
+      "published_at": "2026-04-29"
+    },
+    {
+      "ticker": "GOOGL",
+      "source": "analyst note",
+      "title": "GOOGL: AI search moat intact, Cloud thesis strengthening",
+      "text": "Google's AI Overviews (formerly SGE) now cover 35% of search queries with no meaningful ad revenue erosion detected. Analyst consensus has raised 2026 EPS estimates by 8% post-earnings. The Cloud unit is on track to reach $50B annualized run-rate by Q4-2026. Key risk: DOJ antitrust remedy hearings in Q3; structural separation of Chrome or Android remains a tail risk. Price target raised to $210.",
+      "published_at": "2026-05-15"
+    },
+    {
+      "ticker": "GOOGL",
+      "source": "options desk note",
+      "title": "GOOGL options: low implied vol relative to DOJ event risk",
+      "text": "GOOGL 30-day implied volatility at 24% sits near a 52-week low despite pending DOJ antitrust remedy decision expected in Q3. Put/call ratio at 0.68 suggests the market is not pricing the structural remedy tail risk adequately. The desk recommends ratio put spreads to define downside exposure into the ruling. Support levels cluster at $155 and $140.",
+      "published_at": "2026-06-01"
+    },
+    {
+      "ticker": "SPCX",
+      "source": "SpaceX company update",
+      "title": "SpaceX Starship Flight 9 achieves full mission success",
+      "text": "SpaceX successfully completed Starship Flight 9 with full booster catch and upper stage ocean splashdown, validating the full reusability architecture. NASA confirmed Starship HLS readiness for the Artemis III lunar landing scheduled for late 2026. Starlink constellation surpassed 7,000 active satellites with 4.2M subscribers globally, generating an estimated $8B annualized revenue. The milestone significantly de-risks the SPCX space ETF underlying holdings.",
+      "published_at": "2026-05-28"
+    },
+    {
+      "ticker": "SPCX",
       "source": "sector research",
-      "title": "Immuno-oncology funding environment 2026",
-      "text": "Biotech funding conditions improved in early 2026, with follow-on issuance up 60% year over year. Small-cap immuno-oncology names with clinical catalysts have outperformed the XBI by 22 points year to date. The note lists Cue Biopharma among ten companies with sub-$500M market caps and Phase 1b/2 readouts inside 12 months.",
-      "published_at": "2026-04-10"
+      "title": "Space economy ETF outlook: SPCX positioned for Starlink IPO",
+      "text": "The Procure Space ETF (SPCX) has 23% of its NAV in companies with direct SpaceX supply-chain exposure. An anticipated Starlink IPO in late 2026 or 2027 could be the largest tech listing since Alibaba. SPCX also holds significant positions in Planet Labs, Rocket Lab, and Intuitive Machines, all benefiting from record NASA commercial contracts. Space sector revenue expected to reach $1T globally by 2030.",
+      "published_at": "2026-06-05"
+    },
+    {
+      "ticker": "SPCX",
+      "source": "launch schedule",
+      "title": "SpaceX Q2-2026 launch cadence: 28 missions completed",
+      "text": "SpaceX completed 28 orbital missions in Q2-2026, maintaining its target of 120+ launches for full year 2026. Falcon 9 booster B1058 set a new reuse record at 25 flights. The Starship program is preparing for Flight 10 targeting full orbital re-entry and Texas landing. Commercial crew missions for NASA and private customers continue at record pace, supporting SPCX ETF constituent revenue growth.",
+      "published_at": "2026-06-10"
+    },
+    {
+      "ticker": "^VIX",
+      "source": "CBOE market data",
+      "title": "VIX market analysis: elevated uncertainty regime",
+      "text": "The CBOE Volatility Index (VIX) reflects the market's expectation of 30-day S&P 500 volatility. A VIX above 20 signals elevated uncertainty; above 30 signals stress; above 40 signals panic. Current VIX term structure: check live data for current regime. Historically, VIX spikes above 30 have represented buying opportunities in equities with average forward 12-month SPX returns of +18%. Mean reversion of VIX from elevated levels typically occurs within 3-6 months.",
+      "published_at": "2026-06-17"
+    },
+    {
+      "ticker": "^VIX",
+      "source": "volatility desk",
+      "title": "VIX term structure: contango vs backwardation dynamics",
+      "text": "VIX term structure analysis: when VIX9D (9-day) > VIX (30-day) > VIX3M (3-month), the market is in backwardation — a signal of acute near-term fear and potential for sharp reversals. Normal market state (contango) has VIX3M > VIX > VIX9D. Contango implies the market expects volatility to decline. UVXY profits from VIX spikes but suffers severe decay in contango. Volatility carry trades (short UVXY) work 75% of calendar days in normal contango regimes.",
+      "published_at": "2026-06-17"
+    },
+    {
+      "ticker": "^VIX",
+      "source": "options desk note",
+      "title": "VIX options and hedging strategies for the current regime",
+      "text": "VIX call options (which hedge equity portfolios against volatility spikes) are priced with a persistent positive skew — OTM calls are expensive relative to puts due to the asymmetric risk profile of volatility. S&P 500 portfolio managers typically hold 3-5% of NAV in VIX calls or UVXY as a hedge. VIX futures roll yield (cost of maintaining a long VIX position) averages -5% to -8% monthly in contango, making UVXY a costly long-term hold. Active management of hedge ratio is critical.",
+      "published_at": "2026-06-15"
+    },
+    {
+      "ticker": "UVXY",
+      "source": "ProShares fund overview",
+      "title": "UVXY: 1.5x leveraged VIX short-term futures ETF mechanics",
+      "text": "UVXY (ProShares Ultra VIX Short-Term Futures ETF) provides 1.5x daily leveraged exposure to the S&P 500 VIX Short-Term Futures Index, which rolls between the front two VIX futures months. Due to daily rebalancing and futures roll decay, UVXY is designed as a short-term trading instrument, not a long-term hold. In normal contango markets, UVXY loses 5-10% of its value per month from roll decay alone. It is effective as a hedge during sharp, acute VIX spikes exceeding 5 points.",
+      "published_at": "2026-06-10"
+    },
+    {
+      "ticker": "UVXY",
+      "source": "volatility desk",
+      "title": "UVXY trading strategy: catalyst-driven spike plays",
+      "text": "UVXY is best used as a catalyst-driven hedge, not a passive long. Effective entry points: (1) when VIX is below 15 (cheap hedge) before known risk events (FOMC, CPI, earnings), (2) when VIX term structure inverts to backwardation, signaling acute fear. Exit strategy: scale out as VIX spikes above 25-30. Common strategy: buy UVXY calls 2-4 weeks before known catalysts, sell into the event. Avoid holding UVXY through prolonged calm periods due to theta decay compounding with roll decay.",
+      "published_at": "2026-06-12"
+    },
+    {
+      "ticker": "UVXY",
+      "source": "options desk note",
+      "title": "UVXY options structure: leveraged exposure to volatility of volatility",
+      "text": "UVXY options carry extremely high implied volatility (often 80-120% IV) reflecting both the underlying's volatility and the daily rebalancing uncertainty. Call options on UVXY are popular for asymmetric tail-risk hedges. Put options on UVXY are popular as a volatility carry trade — selling UVXY puts generates premium from the persistent roll decay. Risk: a sudden VIX spike can cause UVXY puts to lose significant value rapidly. Position sizing should be conservative, typically under 2% of portfolio notional.",
+      "published_at": "2026-06-08"
     }
   ]
 }

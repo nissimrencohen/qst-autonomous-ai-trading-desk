@@ -47,7 +47,11 @@ class Settings(BaseSettings):
     # ---------------------------------------------------------------- LLM router
     # Comma-separated provider priority; used when summarizer_backend == "litellm".
     # Ignored when environment == "aws" (Bedrock used exclusively).
-    llm_provider_chain: str = "groq,gemini,openai,ollama"
+    # Budget-first order: free-tier → paid → local
+    llm_provider_chain: str = "groq,openai,gemini,ollama"
+
+    # When True, overrides the chain and routes ALL LLM calls to local Ollama.
+    force_local_ollama: bool = False
 
     # Groq
     groq_api_key: SecretStr = SecretStr("")
@@ -55,7 +59,7 @@ class Settings(BaseSettings):
 
     # Google Gemini
     google_api_key: SecretStr = SecretStr("")
-    gemini_model: str = "gemini/gemini-2.0-flash"
+    gemini_model: str = "gemini/gemini-2.5-flash"
 
     # OpenAI
     openai_api_key: SecretStr = SecretStr("")
@@ -71,6 +75,13 @@ class Settings(BaseSettings):
     # Helicone proxy.  Leave empty to call providers directly (default).
     helicone_api_key: SecretStr = SecretStr("")
     helicone_cache_enabled: bool = True
+
+    # ---------------------------------------------------------------- Langfuse (self-hosted prompt tracing)
+    # Set RAG_LANGFUSE_PUBLIC_KEY + RAG_LANGFUSE_SECRET_KEY to enable.
+    # Leave empty to disable Langfuse entirely (default).
+    langfuse_public_key: SecretStr = SecretStr("")
+    langfuse_secret_key: SecretStr = SecretStr("")
+    langfuse_host: str = "http://langfuse:3000"
 
 
 settings = Settings()

@@ -125,6 +125,125 @@ class TorchChartAnalyser:
         )
 
 
+class LLMChartAnalyser:
+    """Complexity-first multimodal LLM backend.
+
+    Step 1 — gpt-4o-mini: fast and cheap; handles the majority of charts.
+    Step 2 — gemini-2.5-flash: activated automatically when gpt-4o-mini
+              returns confidence < VISION_LLM_ESCALATION_THRESHOLD (default 0.60).
+
+    Both steps return the same ChartAnalysis contract.  If both fail (no API
+    keys, quota exceeded) the analyser falls back to HeuristicChartAnalyser
+    so chart analysis never hard-errors in production.
+    """
+
+    name = "llm"
+
+    _SYSTEM_PROMPT = (
+        "You are a quantitative technical analyst specialising in price charts. "
+        "Analyse the chart image and return ONLY a valid JSON object — no markdown, "
+        "no explanation — matching exactly this schema:\n"
+        '{"score": <float -1.0 to 1.0>, '
+        '"confidence": <float 0.0 to 1.0>, '
+        '"patterns": {'
+        '"support_bounce": <float>, '
+        '"resistance_rejection": <float>, '
+        '"breakout_up": <float>, '
+        '"breakdown": <float>, '
+        '"consolidation": <float>}}\n'
+        "score: -1.0 = strongly bearish, +1.0 = strongly bullish. "
+        "confidence: your certainty about the score. "
+        "Pattern values are probabilities 0-1 (need not sum to 1). "
+        "Return ONLY the JSON object."
+    )
+
+    def analyse(self, image_bytes: bytes) -> ChartAnalysis:
+        import base64
+        import json as _json
+
+        b64 = base64.b64encode(image_bytes).decode()
+        messages = [
+            {"role": "system", "content": self._SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+                    {"type": "text", "text": "Analyse this chart and return the JSON."},
+                ],
+            },
+        ]
+
+        # ── Step 1: primary model (fast/cheap) ────────────────────────────
+        result = self._call_model(
+            settings.llm_vision_primary_model,
+            settings.openai_api_key,
+            messages,
+        )
+        if result is not None and result.confidence >= settings.llm_vision_escalation_threshold:
+            return result
+
+        # ── Step 2: escalate to heavier multimodal model ──────────────────
+        import logging
+        _log = logging.getLogger(__name__)
+        _log.info(
+            "Vision LLM: confidence=%.2f < %.2f — escalating to %s",
+            result.confidence if result else 0.0,
+            settings.llm_vision_escalation_threshold,
+            settings.llm_vision_escalation_model,
+        )
+        escalated = self._call_model(
+            settings.llm_vision_escalation_model,
+            settings.google_api_key,
+            messages,
+        )
+        if escalated is not None:
+            return escalated
+
+        # ── Fallback: heuristic (never hard-error in production) ──────────
+        if result is not None:
+            return result  # low-confidence primary beats no result
+        return HeuristicChartAnalyser().analyse(image_bytes)
+
+    def _call_model(
+        self,
+        model: str,
+        api_key: str,
+        messages: list,
+    ) -> ChartAnalysis | None:
+        import json as _json
+        import logging
+        import re
+
+        _log = logging.getLogger(__name__)
+        try:
+            import litellm
+
+            kwargs: dict = {"model": model, "messages": messages, "max_tokens": 512}
+            if api_key:
+                kwargs["api_key"] = api_key
+
+            resp = litellm.completion(**kwargs)
+            raw = resp.choices[0].message.content or ""
+            m = re.search(r"\{.*\}", raw, re.DOTALL)
+            if not m:
+                _log.warning("LLM vision %s returned no JSON: %s", model, raw[:200])
+                return None
+            data = _json.loads(m.group())
+            patterns = {p: _clip01(float(data.get("patterns", {}).get(p, 0.0))) for p in PATTERNS}
+            return ChartAnalysis(
+                score=max(-1.0, min(1.0, float(data.get("score", 0.0)))),
+                confidence=_clip01(float(data.get("confidence", 0.5))),
+                patterns=patterns,
+                backend=f"llm:{model}",
+            )
+        except ImportError:
+            _log.warning("litellm not installed; LLM vision unavailable")
+            return None
+        except Exception as exc:
+            _log.warning("LLM vision %s failed: %s", model, exc)
+            return None
+
+
 def _clip01(v: float) -> float:
     return round(min(1.0, max(0.0, v)), 4)
 
@@ -133,4 +252,48 @@ def _clip01(v: float) -> float:
 def get_analyser() -> ChartAnalyser:
     if settings.model_backend == "torch":
         return TorchChartAnalyser(settings.model_path or None)
+    if settings.model_backend == "llm":
+        return LLMChartAnalyser()
     return HeuristicChartAnalyser()
+
+def describe_image(image_bytes: bytes) -> tuple[str, str]:
+    """Ask the multimodal LLM to describe the image in detail."""
+    import base64
+    import logging
+    try:
+        import litellm
+    except ImportError:
+        return ("Multimodal LLM not available (litellm not installed).", "none")
+
+    _log = logging.getLogger(__name__)
+    b64 = base64.b64encode(image_bytes).decode()
+    
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+                {"type": "text", "text": "Extract all text, data tables, and describe the financial charts in detail."},
+            ],
+        },
+    ]
+
+    model = settings.llm_vision_primary_model
+    api_key = settings.openai_api_key
+
+    # Optionally escalate to google model if openai key is missing
+    if not api_key and settings.google_api_key:
+        model = settings.llm_vision_escalation_model
+        api_key = settings.google_api_key
+
+    kwargs: dict = {"model": model, "messages": messages, "max_tokens": 1024}
+    if api_key:
+        kwargs["api_key"] = api_key
+
+    try:
+        resp = litellm.completion(**kwargs)
+        raw = resp.choices[0].message.content or ""
+        return (raw, f"llm:{model}")
+    except Exception as exc:
+        _log.warning("describe_image %s failed: %s", model, exc)
+        return (f"Failed to describe image: {exc}", f"error:{model}")

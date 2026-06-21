@@ -1,6 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Stage } from "../types";
-import { TICKERS } from "../types";
+import { TICKERS, isVolTicker } from "../types";
 import type { AnalyzeParams } from "../api";
 
 const STAGES: { key: Stage; label: string }[] = [
@@ -13,20 +13,33 @@ const STAGES: { key: Stage; label: string }[] = [
 export function RequestForm(props: {
   stage: Stage;
   onSubmit: (p: AnalyzeParams) => void;
+  initialTicker?: string | null;
 }) {
   const [ticker, setTicker] = useState<string>(TICKERS[0]);
+  // pre-select the ticker the user clicked on a Command Center desk
+  useEffect(() => {
+    if (props.initialTicker) setTicker(props.initialTicker);
+  }, [props.initialTicker]);
   const [question, setQuestion] = useState(
     "What is the probability of upside into the next monthly expiry?",
   );
   const [horizon, setHorizon] = useState(30);
   const [chart, setChart] = useState<File | null>(null);
+  const [volDesk, setVolDesk] = useState(false);
+  const [intraday, setIntraday] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const effectiveHorizon = intraday ? 1 : horizon;
 
   const busy =
     props.stage === "validating" ||
     props.stage === "retrieving" ||
     props.stage === "synthesizing";
   const activeIdx = STAGES.findIndex((s) => s.key === props.stage);
+
+  // Volatility instruments force the desk on; otherwise it's a manual toggle.
+  const volForced = isVolTicker(ticker);
+  const effectiveVolDesk = volForced || volDesk;
 
   return (
     <section className="panel panel--form" style={{ animationDelay: "0.05s" }}>
@@ -64,8 +77,33 @@ export function RequestForm(props: {
       </label>
 
       <label className="field">
+        <span className="field__label">Prediction interval</span>
+        <div className="ticker-grid">
+          <button
+            type="button"
+            className={`ticker-chip ${!intraday ? "ticker-chip--on" : ""}`}
+            onClick={() => setIntraday(false)}
+            disabled={busy}
+          >
+            MULTI-DAY
+          </button>
+          <button
+            type="button"
+            className={`ticker-chip ${intraday ? "ticker-chip--on" : ""}`}
+            onClick={() => setIntraday(true)}
+            disabled={busy}
+          >
+            INTRADAY 5m
+          </button>
+        </div>
+        {intraday && (
+          <span className="field__hint mono">5-minute bars · 1-day projection · overrides horizon</span>
+        )}
+      </label>
+
+      <label className="field">
         <span className="field__label">
-          Horizon — <b className="mono">{horizon}d</b>
+          Horizon — <b className="mono">{intraday ? "1d (intraday)" : `${horizon}d`}</b>
         </span>
         <input
           type="range"
@@ -74,8 +112,30 @@ export function RequestForm(props: {
           step={1}
           value={horizon}
           onChange={(e) => setHorizon(Number(e.target.value))}
-          disabled={busy}
+          disabled={busy || intraday}
         />
+      </label>
+
+      <label className="field">
+        <span className="field__label">Desk mode</span>
+        <button
+          type="button"
+          className={`ticker-chip ${effectiveVolDesk ? "ticker-chip--on" : ""}`}
+          onClick={() => !volForced && setVolDesk((v) => !v)}
+          disabled={busy || volForced}
+          title={
+            volForced
+              ? "Auto-armed for volatility instruments"
+              : "Toggle VIX term-structure analysis"
+          }
+        >
+          {effectiveVolDesk ? "◉ VOLATILITY DESK" : "○ VOLATILITY DESK"}
+        </button>
+        {effectiveVolDesk && (
+          <span className="field__hint mono">
+            VIX term structure · contango/backwardation · regime
+          </span>
+        )}
       </label>
 
       <label className="field">
@@ -94,7 +154,14 @@ export function RequestForm(props: {
         className="submit"
         disabled={busy || question.trim().length < 3}
         onClick={() =>
-          props.onSubmit({ ticker, question: question.trim(), horizonDays: horizon, chart })
+          props.onSubmit({
+            ticker,
+            question: question.trim(),
+            horizonDays: effectiveHorizon,
+            chart,
+            volatilityDesk: effectiveVolDesk,
+            interval: intraday ? "5m" : "1d",
+          })
         }
       >
         {busy ? "WORKING…" : "RUN ANALYSIS"}

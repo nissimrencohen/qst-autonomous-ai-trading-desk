@@ -1,8 +1,10 @@
-"""In-memory run-trace store.
+"""Run-trace store — in-memory (default) or PostgreSQL (v1.4 durable mode).
 
-Keeps the last `AGENTIC_MAX_RUNS` agent executions so the dashboard can show
-the reasoning chain via GET /runs/{run_id}. Process-local by design — traces
-are observability data, not system of record.
+Select via AGENTIC_RUN_STORE_BACKEND:
+  "memory"   (default) — in-process OrderedDict, lost on restart.
+  "postgres" — durable, multi-worker-safe; requires AGENTIC_POSTGRES_DSN.
+
+`build_run_store()` is the public factory used by main.py.
 """
 from __future__ import annotations
 
@@ -60,6 +62,44 @@ class RunStore:
             if trace is not None:
                 trace.finished_at = _now()
 
+    def set_report(self, run_id: str, report) -> None:
+        """Attach the finished report and mark the run done (async /analyze)."""
+        with self._lock:
+            trace = self._runs.get(run_id)
+            if trace is not None:
+                trace.report = report
+                trace.status = "done"
+                trace.finished_at = _now()
+
+    def set_blocked(self, run_id: str, reasons: list[str]) -> None:
+        with self._lock:
+            trace = self._runs.get(run_id)
+            if trace is not None:
+                trace.status = "blocked"
+                trace.blocked_reasons = reasons
+                trace.finished_at = _now()
+
+    def set_error(self, run_id: str, message: str) -> None:
+        with self._lock:
+            trace = self._runs.get(run_id)
+            if trace is not None:
+                trace.status = "error"
+                trace.error = message
+                trace.finished_at = _now()
+
     def get(self, run_id: str) -> RunTrace | None:
         with self._lock:
             return self._runs.get(run_id)
+
+
+# ── factory ──────────────────────────────────────────────────────────────────
+
+def build_run_store():
+    """Return the appropriate RunStore backend based on config."""
+    from app.config import settings  # local import to avoid circular at module load
+    backend = getattr(settings, "run_store_backend", "memory")
+    if backend == "postgres":
+        from app.runs_pg import PgRunStore
+        dsn = settings.postgres_dsn.get_secret_value() if hasattr(settings.postgres_dsn, "get_secret_value") else settings.postgres_dsn
+        return PgRunStore(dsn=dsn, max_runs=settings.max_runs)
+    return RunStore(max_runs=settings.max_runs)

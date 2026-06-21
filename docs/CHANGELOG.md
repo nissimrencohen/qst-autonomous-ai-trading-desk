@@ -6,7 +6,326 @@ newest first. Format loosely follows [Keep a Changelog](https://keepachangelog.c
 
 ## [Unreleased]
 
-_(post-1.0 backlog: EC2 deployment, crew confidence-weighting V6)_
+_(v1.4 follow-ups: EC2 deployment, GARCH/Heston forecast, social pipeline expansion, max_pos post-processing)_
+
+### Rebrand → QST · real chart vision · per-tab product clarity
+
+**Changed**
+- **Product rebrand → QST (Quant Swarm Terminal)**: wordmark `QST` (amber) + neo-mint terminal-cursor accent, subtitle "QUANT SWARM TERMINAL · 360° MULTI-AGENT MARKET INTELLIGENCE". Applied to masthead, login, chat assistant label, browser `<title>`, aria/title.
+- **Per-tab product framing** (`components/ModeBanner.tsx`): every workspace now declares its purpose + the pipeline behind it via a provenance chip — **LIVE DESK** = `CONTINUOUS · CACHED` (always-on monitoring from the 1-min ingestion cache), **ANALYSIS** = `LIVE · MCP + VISION` (on-demand deep-dive: live MCP data + chart vision + 7-agent crew), **BRIEFING** = `MORNING · GBM MODEL`. Makes the three views' very different data-freshness/sourcing explicit.
+
+**Fixed / Enabled**
+- **Real chart vision**: `vision-analyser` was running the `heuristic` backend (returns a meaningless ~neutral score; chart never truly "read"). Switched to **`VISION_MODEL_BACKEND=llm`** (gpt-4o-mini → gemini escalation; OpenAI key already in the container). Verified: a real NVDA candlestick returns `bullish, conf 0.75, backend=llm:gpt-4o-mini` and now flows through `/analyze`.
+
+**Added**
+- `scripts/make_chart.py` — PIL-only candlestick renderer from yfinance OHLC (no matplotlib), used to exercise the LLM vision path end-to-end.
+
+### Chart-vision surfaced in report/UI + IngestionStore thread-safety
+
+**Fixed**
+- **Uploaded chart analysis was invisible**: the orchestrator ran vision and fed it to the crew, but the result was never written to `ProbabilityReport`, so the dashboard showed no sign the chart was used (looked "failed"). Added `vision` to the `ProbabilityReport` schema, attached it in `orchestrator.py`, and added a **Chart Vision** card to `ReportView` (label + score + confidence + pattern chips, coloured by direction). Verified: SPCX chart → `bearish, conf 0.70` now shown.
+- **IngestionStore concurrency bug**: a single SQLite connection was shared, unguarded, across the ingestion writer + 1-s synthesis-loop reader + briefing → "bad parameter or other API misuse" / "recursive use of cursors" (broke SPCX and intermittently others in LIVE DESK / BRIEFING). Added a `threading.RLock` around all connection access; offline-store read failures dropped from constant → 0.
+
+**Note**
+- Corrected an earlier wrong assumption: **SPCX is a real, live ticker** (Space Exploration Technologies; yfinance returns price/volume/fundamentals — 52w 149.34–225.64). The data layer was always connected; the issues were the invisible vision result + the store concurrency bug.
+
+### MCP (Model Context Protocol) market-data integration + Golden Run
+
+**Added**
+- **MCP server** (`app/mcp_server.py`): a standards-compliant FastMCP server exposing two tools — `get_technical_data` (price, volume, %chg, RSI, MACD, Bollinger) and `get_fundamental_data` (P/E, EPS, market cap, name, 52w range). Runnable over stdio (`python -m app.mcp_server`) for any MCP client (Claude Desktop, IDEs, CrewAI adapter).
+- **Shared data layer** (`app/mcp_data.py`): resilient backing functions reused by both the MCP server and the in-process CrewAI tools, so the protocol path and the in-process path return identical payloads. Built on the existing market-data chain (polygon→alpaca→yfinance) + shared TA math.
+- **CrewAI wiring** (`app/mcp_tools.py`): `build_mcp_tools()` returns in-process MCP tools (default, stable) with an opt-in `MCPServerAdapter` stdio round-trip path (`AGENTIC_MCP_CREW_ADAPTER=true`). Wired into `engine.py` so the analysts invoke MCP for technical/fundamental data; MCP **supersedes** the overlapping legacy `get_market_quote` / `get_technical_indicators` tools so data genuinely routes through MCP.
+- **Isolated test** (`test_mcp_data.py`): drives the real FastMCP protocol (list_tools/call_tool) for AAPL + NVDA, validating JSON shape and fields; plus a time-boxed stdio round-trip.
+- Config: `AGENTIC_MCP_ENABLED` (default true), `AGENTIC_MCP_CREW_ADAPTER` (default false); compose env + `mcp>=1.6.0` requirement.
+
+**Fixed**
+- **CrewEngine live-synthesis crash**: `crew_kickoff` logging referenced a non-existent `self._agents` (`AttributeError`), breaking every `/analyze`, `/analyze/batch` and `/synthesize` call. Corrected to the local `agents` dict.
+
+**Verified (Golden Run, 2026-06-21)**
+- Isolated MCP test passed (valid JSON for AAPL/NVDA, no rate-limit crashes).
+- Live batch over all 10 desk tickers: 9 done / 1 gatekeeper-flagged / 0 errors, with **22 MCP tool invocations** logged — grounded MCP data cut hallucination flags from 3→1.
+- Daily briefing regenerated; `agent_memory.db` / `ingestion.db` populated; React dashboard renders all views (AlphaSwarm branding, RBAC tabs, briefing for all 10 instruments).
+
+### Final Production Polish — DB-backed RBAC · legacy eradication · UI/UX overhaul
+
+**Added**
+- **DB-backed RBAC** (`services/agentic-engine/app/users.py`): real `users` table (SQLite) with `username`, `hashed_password`, `role` (admin/user); bcrypt hashing (direct `bcrypt`, not passlib — passlib 1.7.x breaks on bcrypt ≥ 4.1). Seeds a default `admin` + `user` on startup **only when the table is empty**.
+- **JWT login + role gating** (`app/auth.py`): `POST /auth/token` verifies credentials against the DB and returns `{access_token, token_type, role, username}`; the JWT carries a `role` claim. New `current_user` / `require_admin` dependencies + `GET /auth/me`. Config: `AGENTIC_AUTH_USER_PASSWORD`, `AGENTIC_USERS_DB_PATH`.
+- **React auth flow**: `src/auth/AuthContext.tsx` (login/logout, token + role persisted to localStorage, cross-tab sync) and a centered, terminal-aesthetic `src/components/Login.tsx`. The whole desk now sits behind login.
+- **Route protection**: `user` role → LIVE DESK, BRIEFING, ANALYSIS MODE, ASSISTANT. `admin` role → all of the above **plus** the admin-only INGEST tab (hidden from the nav for standard users and guarded at render).
+- Tests: DB login returns role, `require_admin` 403s a standard user, JWT now encodes/decodes the role claim.
+
+**Changed**
+- **Branding**: header wordmark `DESK/01` → **DEEP ALPHA ENGINE** (amber + neo-mint accent), refined responsive sizing aligned with the sub-header. Masthead now shows the signed-in user, role badge, and a LOGOUT control.
+- **LIVE DESK polish**: roomier card padding + grid gutters; all numeric surfaces use tabular (fixed-width) figures so columns align.
+
+**Fixed**
+- **CRITICAL nav-tab hover bug**: the active tab painted amber-on-amber on hover (invisible). Active+hover now renders dark ink on the amber fill; inactive hover is bright white on a subtle tint.
+
+**Removed**
+- **Legacy Streamlit admin panel** fully eradicated: deleted `frontend/admin-panel/`, removed the `admin-panel` service from `docker-compose.yml`, and purged port `8501` from the live docs. Manual ingestion lives in the dashboard's admin-only INGEST → MANUAL UPLOAD tab.
+
+### Golden Master — branding (AlphaSwarm) + vision-based UI overhaul
+
+**Changed**
+- **Product branding → AlphaSwarm**: header wordmark is now `ALPHA` (amber) + `SWARM` (neo-mint) with subtitle "AUTONOMOUS MULTI-AGENT QUANT DESK · 360° MARKET INTELLIGENCE". Applied across the masthead, login screen, chat assistant label, browser `<title>`, and aria/title attributes. Refined, responsive display sizing aligned with the sub-header.
+- **Briefing panel overhaul** (`DailyBriefingPanel.tsx`): converted from RTL Hebrew + off-palette blue (`#3b82f6`) / slate fallback tokens to **English, LTR, and the real amber/neo-mint terminal palette** (`--amber`, `--bull`, `--bear`, `--ink*`, `--line*`). Tabular numerals across the data grid; roomier card padding and grid gutters; dates pinned to `en-US`.
+
+**Verified**
+- Legacy check: `frontend/admin-panel` absent; `8501` / `admin-panel` absent from `docker-compose.yml`.
+- `tsc -b` + `vite build` clean; masthead wordmark colors, tabular numerals, active-tab hover legibility, and the de-Hebraized briefing confirmed in the browser preview.
+
+## [2.0.0-dev] — Continuous Multi-Ticker Architecture · *in progress (gated)*
+
+> V2.0 upgrades the desk from on-demand single-ticker analysis to a continuous,
+> autonomous multi-ticker desk. Built step-by-step; each step verified + documented
+> before the next.
+
+### Step 2a — Strict Watchlist: single source of truth + input-level rejection (Req 1)
+
+**Added**
+- **`app/watchlist.py`** — canonical single source of truth for the approved **10** instruments: `SPCX MSFT AAPL NVDA GOOGL AMZN UPRO TQQQ VIXY SVXY`. Exposes `WATCHLIST`, `WATCHLIST_ORDERED`, `VOL_TICKERS={VIXY,SVXY}`, `INSTRUMENT_LABELS`, and helpers `normalize()`, `is_whitelisted()`, `assert_whitelisted()`, `is_volatility_instrument()`.
+- **Strict input rejection**: `field_validator` on `AnalyzeRequest.ticker` and `SynthesizeRequest.ticker` rejects off-list tickers with **HTTP 422 before any work begins**, and normalises (`$aapl` → `AAPL`).
+- Tests: `TestStrictTickerValidation` (off-list 422 on `/analyze` + `/synthesize`; new members UPRO/TQQQ/VIXY accepted; `$aapl` normalised end-to-end).
+
+**Changed**
+- **Watchlist composition (mission-aligned): added UPRO, TQQQ, VIXY; removed UVXY**; removed bare VIX proxy aliases (`VIX`/`^VIX`/`VXX`) from the accept-list — the fear index is now covered via mandatory macro/VIX *context* (Req 2), not as a tradeable member.
+- `app/gatekeeper.py`: `WHITELIST` + `is_whitelisted` now **re-exported from `app.watchlist`** (duplicate definition deleted).
+- `app/engine.py`: `CrewEngine._VOL_TICKERS` → `watchlist.VOL_TICKERS` (`{VIXY, SVXY}`).
+- `app/daily_briefing.py`: `_BRIEFING_TICKERS` → all 10 from `WATCHLIST_ORDERED`; volatility-desk routing → `VOL_TICKERS`.
+- `app/api.py`: `BatchAnalyzeRequest` default → all 10; `max_length` 7 → 10.
+- `app/batch_orchestrator.py`: docstring 7 → 10 instruments.
+- Tests updated: whitelist membership (10 symbols), VIX aliases now rejected, `/gatekeeper/whitelist` length 10.
+
+**Deferred to later V2.0 steps (tracked, not lost):**
+- rag-service `market-live` focus list + `updater.ACTIVE_TICKERS` still reference UVXY/^VIX/demo tickers → frontend/RAG-alignment step.
+- `prompts.VOLATILITY_ANALYST` still says "^VIX or UVXY" → prompt-update step (requires a PROMPT_ENGINEERING_LOG entry).
+- `social_signal_processor` recognised-ticker universe lacks UPRO/TQQQ/VIXY → data-sources step.
+
+### Step 2b/2c — Data layer: Competitor + Macro + VIX tools, mandatory macro/fear context (Req 2 & 3)
+
+**Added**
+- **Competitor read-through** — `COMPETITOR_MAP` + `competitors_for()` in [`app/watchlist.py`](services/agentic-engine/app/watchlist.py) (e.g. NVDA → AMD/AVGO/INTC/TSM; SPCX → RKLB/ASTS/LMT/BA; leveraged/vol ETFs map to 1x/2x/inverse siblings). `finance_tools.fetch_competitors(ticker)` returns each peer's live price + daily % change.
+- **Broad-market macro snapshot** — `finance_tools.fetch_macro_snapshot()`: S&P 500 (`^GSPC`→`SPY`) + NASDAQ (`^IXIC`→`QQQ`) level, daily % change, and a risk-on/risk-off tone.
+- **Two new CrewAI tools** wired into the finance toolset (auto-available to the 5 finance-tool agents): `get_macro_snapshot`, `get_competitor_analysis`. (VIX tool `get_vix_curve` already existed.)
+- **`app/macro_context.py`** — `build_desk_context(ticker)` composes the macro snapshot + VIX curve into one **mandatory** block. 60 s TTL cache on the (market-wide) data so a 10-ticker burst triggers ≤1 macro+VIX fetch (rate-limit safe).
+
+**Changed**
+- **Mandatory Macro & Fear context (Req 2):** [`orchestrator.py`](services/agentic-engine/app/orchestrator.py) now builds `build_desk_context()` and injects it into the existing `{macro_context}` placeholder for **every** `/analyze` — previously only the daily briefing supplied it. A caller-supplied `macro_context` (e.g. the briefing's richer block) is respected. New `macro_context` run-trace step records source (`caller`/`desk_auto`).
+- All fetchers are **rate-limit resilient**: any provider error → `{"error": ...}`; `build_desk_context` always returns a non-empty block (degrades to "unavailable").
+
+**Tested** — new [`tests/test_data_layer.py`](services/agentic-engine/tests/test_data_layer.py) (12 tests, mocked yfinance — no network): macro parsing + ETF fallback + 429-resilience; competitor read-through + per-peer resilience + unmapped/normalised input; `build_desk_context` completeness, graceful degradation, and cross-ticker caching; orchestrator injects macro on every analysis and respects caller-supplied context. **Full suite: 70 passed, 1 skipped.**
+
+> Note: agent prompt templates are **not** yet updated to instruct use of the competitor tool — that is Step 2f (with a PROMPT_ENGINEERING_LOG entry), per the gated plan. Macro/fear is already deterministically injected, so it does not depend on prompt changes.
+
+### Step 2f — Prompt updates: competitor tool usage + per-ticker macro/fear factoring (Req 2 & 3)
+
+**Changed (`app/prompts.py`)**
+- **Fundamental Analyst** now MUST call `get_competitor_analysis`, cite ≥1 peer (`[peers: yfinance]`), and explicitly tie the macro/fear backdrop to the ticker's fundamentals.
+- **Technical Analyst** now calls `get_competitor_analysis` for relative-strength context and weights its read by the macro/fear regime.
+- **Volatility Analyst** — corrected stale lead-instrument reference (`^VIX`/`UVXY` → `VIXY`/`SVXY`, post-watchlist) with roll-decay / inverse-roll notes (clears the Step-2a deferral).
+- **`SYNTHESIS_TASK`** — added two MANDATORY report inclusions: (1) how the broad-market + VIX/fear regime affect *this* ticker; (2) a peer read-through citing ≥1 competitor (or "no mapping").
+
+**Changed (`app/engine.py`)** — the macro/fear block is now injected into the **technical and fundamental analyst task descriptions** (previously synthesis-only), and the fundamental/technical tasks explicitly instruct the competitor-tool call + peer citation.
+
+**Tested — live single-ticker integration (mission Step 4 / Step 5 self-correction)** via new [`scripts/integration_competitor_macro.py`](scripts/integration_competitor_macro.py), real CrewAI desk (`engine_backend=crew`):
+- **AAPL / NVDA / VIXY all PASS** — `get_competitor_analysis` actively fired 2–3× per run (peers: MSFT/GOOGL/AMZN, AMD/AVGO/INTC/TSM, UVXY/VXX/VIXM/SVXY); each final report discussed the macro/fear backdrop (risk-off, VIX/regime, populated `volatility_view`).
+- **Rate-limit resilience proven:** Groq hit its daily token cap mid-run; the LLM router fell back to OpenAI and completed without failing the analysis.
+- Fixed a Windows cp1252 console crash by making the macro block ASCII (`→`/`·` → `->`/`|`). Full deterministic suite remains green.
+
+**Prompt log:** [`PROMPT_ENGINEERING_LOG.md`](docs/PROMPT_ENGINEERING_LOG.md) Family 2 advanced to **V6** (10/10) — failure modes, changes, and a 10-case evaluation (3 live full-crew + 4 component + 3 adversarial/honesty).
+
+### Step 2d — 1-Minute Continuous Ingestion Engine (Req 4)
+
+**Added**
+- **`app/ingestion_store.py`** — `IngestionStore` (SQLite): `IngestionRow` data model, `upsert` (SHA1 dedup / `INSERT OR IGNORE`), `query_latest` / `query_since` (time-ordered), `prune`, `count`. Indexed by `(ticker, ingested_at)`.
+- **`app/ingestion_engine.py`** — 60 s background loop (asyncio): per ticker fetches **quote** (A1), **news**, pure-Python **TA** (RSI-14 / MACD-12,26,9 / Bollinger-20,2σ), **competitors**, plus market-wide **macro** (ticker `MACRO`) + **VIX** (ticker `VIX`); slow-cadence **Tavily** news (≤ once / 30 min / ticker). `asyncio.Semaphore(3)` rate-limit guard; every fetcher degrades to `[]` on error. New rows dual-written to SQLite + RAG `/ingest`.
+- **`config.py`** `ingestion_*` settings; lifespan start/stop in `main.py`; `conftest.py` pins `INGESTION_ENABLED=false`.
+- **16 component tests** (`tests/test_ingestion.py`): dedup, indicator math, fetch edge-cases, rate-limit resilience.
+- **Step 2e A1 patch:** ingestion now also stores the primary ticker's own quote/fundamentals (`source_type='quote'`, EPS/PE/market-cap via the resilient market-data chain) so the offline `get_market_quote` is fully populated.
+
+### Step 2e — Continuous Synthesis Loop (Req 4)
+
+**Added**
+- **`app/offline_tools.py`** — store-backed CrewAI tools mirroring the live tool *names* (`get_market_quote`, `get_technical_indicators`, `get_vix_curve`, `get_macro_snapshot`, `get_competitor_analysis`; options/launch return explicit "unavailable in continuous mode"). **Imports neither yfinance, requests, nor finance_tools** — decoupling is structural. Pure readers (`offline_*`) wrapped by the `@tool` factory.
+- **`app/report_store.py`** — `ReportStore` (SQLite): latest `ProbabilityReport` per ticker + round-robin `cursor`, `heartbeat`, and `last_seen` (skip-unchanged) meta.
+- **`app/synthesis_loop.py`** — sequential round-robin background task: one ticker every `synthesis_interval_s` (default **150 s → ~25 min/cycle**). Per ticker: store-built RAG briefing + store-backed macro/fear context + offline crew → output rail → gatekeeper → persisted to RunStore **and** ReportStore. Never fires all 10 at once.
+- **`build_synthesis_engine(store)`** (engine.py) + `CrewEngine(offline_store=…)` — the loop's crew binds the offline toolset and **no live web search**; the on-demand `/analyze` path is unchanged.
+- **`build_desk_context_from_store()`** (macro_context.py) — mandatory macro/fear block sourced from the cached `MACRO`/`VIX` rows, with a staleness flag (shared formatter with the live builder).
+- **Endpoints:** `GET /synthesis/latest`, `GET /synthesis/latest/{ticker}`, `GET /synthesis/status`.
+- **`config.py`** `synthesis_*` settings — **`synthesis_loop_enabled` defaults `false`** (opt-in via env to protect LLM budgets; decision B1); `conftest.py` pins it off.
+
+**Changed** — `main.py` lifespan starts/stops the loop + owns `app.state.report_store`.
+
+**Tested** — **20 component tests** (`tests/test_synthesis_loop.py`): offline tools incl. **decoupling (yfinance patched to raise → tools still serve cache)**, store-backed macro context (complete / stale / empty), report store CRUD + cursor + last_seen, and the single-ticker runner. **Full suite: 109 passed, 1 skipped.**
+- **Integration (`scripts/integration_synthesis_loop.py`):** real offline crew for AAPL with **`yfinance.Ticker` patched to RAISE** — full 7-agent run completed, report persisted to ReportStore, macro/fear discussed (VIX/MACRO/REGIME/RISK-OFF), options correctly "unavailable offline". **PASS — zero live calls.** (Groq daily cap hit → OpenAI fallback completed it.)
+
+### Step 2g — Frontend + RAG realignment to the watchlist
+
+**RAG cleanup (legacy demo tickers removed)**
+- `rag-service/app/updater.py`: `ACTIVE_TICKERS` `[GOOGL, SPCX, ^VIX, UVXY]` → the **10-symbol watchlist**; VIX term-structure now fetched once per cycle as a market-wide macro doc (^VIX is no longer a tradeable list member).
+- `rag-service/app/api.py` `/market-live`: `focus` ticker set `[NVDA, SPCX, UVXY, GOOGL, CUE, ESLT]` → the **10 watchlist** symbols; stale "Sell UVXY short" advice and the `uvxy_signal` semantics re-pointed to VIXY/SVXY.
+
+**Frontend — "Live Continuous Desk" (new)**
+- **`components/ContinuousDesk.tsx`** — polls `GET /synthesis/latest` (+ `/synthesis/status`) every 30 s and renders one card per ticker from the autonomously generated reports (probabilities, risk, execution side, confidence, top caveat) with a live status/heartbeat bar.
+- **Data integrity:** each card renders the **Macro & Fear context block** embedded in the continuous report — S&P 500 / NASDAQ level + tone and VIX level / term-structure / regime.
+- `api.ts`: `fetchSynthesisLatest()` + `fetchSynthesisStatus()`. `types.ts`: `SynthesisReport` / `SynthesisLatest` / `SynthesisStatus` / `SynthesisMacro`; **`TICKERS` and `VOL_TICKERS` realigned to the 10-symbol watchlist** (fixes the instrument selector + ticker tape). `App.tsx`: new **`LIVE DESK`** view mode + header toggle.
+
+**Backend support**
+- `report_store.py`: persists a structured **`macro` block** (macro snapshot + VIX) alongside each report (`macro_json` column + safe migration); `/synthesis/latest` returns it. `synthesis_loop.py` passes `offline_macro_snapshot`/`offline_vix_curve` into `save()`.
+
+**Verified** — frontend `npm run build` (tsc + vite) **clean**; agentic suite **109 passed, 1 skipped** (incl. new `test_synthesize_one_persists_macro_block`); rag-service **6 passed**; data-integrity check confirms `/synthesis/latest` payload carries `macro.macro` (S&P/NASDAQ) + `macro.vix` (regime).
+
+**Live demo** — backend (deterministic engine, `SYNTHESIS_LOOP_ENABLED=true`, 10 s interval) + Vite ran a full round-robin: the desk rendered **10/10 LIVE** cards with macro/fear blocks (live S&P +0.95% / NASDAQ +1.34% / VIX ~17 contango ELEVATED, refreshed mid-rotation) and an advancing heartbeat; **0 errors/tracebacks** (only expected degrade-open notices, guardrails/rag not started). Added reusable demo tooling: `scripts/demo_seed_ingestion.py` + `.claude/launch.json`. Minor UI polish: VIX value rounded to 1 dp in `ContinuousDesk`.
+
+### Bug fixes (post-V2.0 forensic pass · gated)
+
+**Bug #2 — Technical Analyst hallucinated (TA disconnected from synthesis)** 🔴
+- *Root cause:* the ingestion engine computed RSI/MACD/Bollinger and stored them, but they never reached the agents — `_build_rag_from_store` pulled only news, and no prompt instructed the offline `get_technical_indicators` tool (the technical task hinged on the always-"unavailable" offline vision payload). The analyst fabricated chart narrative ("consolidation, bullish divergence") and the mega-caps collapsed to a flat 40/40/20.
+- *Fix:* new **`app/ta_indicators.py`** (single source of truth for the indicator math; `ingestion_engine` re-exports the old `_compute_*` names) + a **live `get_technical_indicators`** tool in `finance_tools` (symmetric with the offline one). `TECHNICAL_ANALYST` + technical task rewritten to ALWAYS call it and **cite the actual values** (vision payload demoted to supplementary; never invent patterns). `_build_rag_from_store` now injects the cached **quote + TA** into the briefing.
+- *Verified live* (`scripts/verify_bug2_ta.py`, offline crew vs real cache): `get_technical_indicators` fires per ticker; reads now cite real numbers (GOOGL: *"neutral RSI of 51.85…"*; MSFT: *"above the upper Bollinger Band → overbought"*); probabilities **diverge by the data** — MSFT 0.55 vs NVDA/GOOGL 0.40 (whose cached TA is genuinely near-identical). PROMPT_ENGINEERING_LOG Family 2 → **V7**. Suite: **110 passed, 1 skipped**.
+
+**Bug #1 — Daily Briefing not migrated to the offline path** 🟠
+- *Root cause:* the briefing fired the **live orchestrator** (`run_analysis_job` → rag-service `/query` over HTTP) per ticker. When rag-service was down every instrument returned `status:"error"`, `crew` bull/neut/bear = 0/null (only the GBM move-probs populated).
+- *Fix:* `run_daily_briefing` now runs the **offline path** — extracted a shared `synthesis_loop.synthesize_ticker_offline()` primitive (used by both the continuous loop and the briefing) that reads the `IngestionStore` + offline crew, with **no rag-service / orchestrator dependency**. VIX/regime now sourced from the cache (`_vix_from_store_or_live`); move-probs kept (yfinance, wrapped degrade-safe). Briefing reports `data_source: "ingestion_cache (offline)"`.
+- *Verified* (`scripts/verify_bug1_briefing.py`) with **rag-service + guardrails pointed at a dead port**: all **10 instruments `status:done`, zero `error`**, crew signals populated. Suite: **110 passed, 1 skipped**. (Flat 0.333 under the deterministic engine is Bug #3, tracked next; the crew engine yields varied probabilities.)
+
+**Bug #3 — DeterministicEngine flatlined at 33/33/33 in continuous mode** 🟠
+- *Root cause:* the deterministic tilt was `vision.score × confidence`; with no chart (always, in the offline loop) tilt=0 → 33/33/33, ignoring the cached TA.
+- *Fix:* new `ta_signal` field on `SynthesizeRequest` (the loop passes the cached RSI/MACD/BB meta); new `engine._tilt_from_ta_signal()` derives a monotonic tilt (RSI→`(rsi−50)/50`, MACD cross ±1, Bollinger position) → `bull=⅓+0.35·tilt`. The deterministic `technical_view` now cites the real indicators, and risk/confidence account for the cached technicals. CrewEngine ignores the field (it pulls TA via `get_technical_indicators`).
+- *Verified* (`scripts/verify_bug3_deterministic.py`, all 10, zero LLM): **bullish spread 0.00 → 0.42** — AMZN/MSFT 0.57–0.58 (RSI 60+, above-band), VIXY **0.16** (bearish MACD/lower-half). `neutral` stays ⅓ by design (tilt only shifts bull↔bear). Suite: **110 passed, 1 skipped**.
+
+**Bug #4 — Probability calibration (break the 40/40/20 anchor)** 🟡
+- *Two-part fix:*
+  - **DeterministicEngine — neutral compression:** `neutral = max(0.10, ⅓ − 0.233·|tilt|)`, freed mass split to the favored side by `bull_frac = ½ + ½·tilt`. Strong setups now compress neutral and push the winner up (was a rigid ⅓ neutral).
+  - **Crew/LLM manager — break the anchor:** `QUANT_EXECUTION_MANAGER` + `SYNTHESIS_TASK` now explicitly instruct: when TA + macro + competitor signals align, push the favored side >0.60 and cut the opposing side to 0.05–0.10 (drop the ~0.20 floor); stay balanced only on mixed/thin evidence. PROMPT_ENGINEERING_LOG Family 2 → **V8**.
+- *Verified:* deterministic (`verify_bug3_deterministic.py`) — bullish spread **0.51**, neutral 0.17 on strong names; crew (`verify_bug4_calibration.py`) — **3/3 broke the anchor**: AMZN 0.65/0.25/0.10, VIXY 0.15/0.25/0.60, NVDA 0.55/0.35/0.10. Suite: **110 passed, 1 skipped**.
+
+**Bug #5 — circular citation in `_build_rag_from_store`** 🟢
+- Fixed: news/tavily summary lines and the retrieved-doc `source` now extract the real `publisher` / `url` from `meta_json` (`_src()` helper) instead of citing the headline as its own source.
+
+### UI outage fix (full-stack)
+- *Root causes:* (a) **no `ErrorBoundary`** — a single component crash white-screened ALL views; (b) the **Ingestion Dashboard + `/ingestion/status` never existed**; (c) `CommandCenter` + `DailyBriefingPanel` referenced **stale demo tickers** (UVXY/ESLT/CUE/^VIX) that V2.0 removed; (d) `DailyBriefingPanel` rendered `NaN%` when the offline briefing's `move_probs` were empty; (e) the backend/loops weren't running to populate the cache.
+- *Fixes:* `IngestionStore.stats()` + resilient **`GET /ingestion/status`** (never 500s); new **`IngestionDashboard.tsx`** (totals, source breakdown, per-ticker freshness) + `INGEST` header view; **`ErrorBoundary.tsx`** wrapping every view; CommandCenter/briefing tickers → watchlist; briefing `move_probs` null-guards (`ProbBar` + up/down split).
+- *Verified live* (full stack, ingestion + synthesis loop enabled, deterministic): all **three dashboards render real V2.0 data with ZERO console errors** — Ingestion (170 rows, 10 tickers fresh, running every 60 s), Live Desk (10/10, calibrated e.g. AMZN 71/17/12), Briefing (10/10 `done`, MSFT 70 % bull). Frontend build clean (46 modules); backend **110 passed, 1 skipped**.
+
+## [1.4.0] — 2026-06-17 · Production Hardening & Execution Engine
+
+### Added
+
+**Phase 1 — Execution Gatekeeper & Broker Integration**
+- **`app/gatekeeper.py`** — whitelist enforcement module. `enforce(report, run_id)` intercepts every `ExecutionPlan` after synthesis. Whitelist: `SPCX MSFT AAPL NVDA GOOGL AMZN UVXY SVXY`. Non-whitelisted tickers: execution blocked, Langfuse `gatekeeper_violation` trace fired, `[GATEKEEPER] Execution BLOCKED` caveat appended to report. Analysis always passes through — only the broker call is gated.
+- **Alpaca broker router** (`_submit_alpaca`): paper (default) or live via `AGENTIC_ALPACA_PAPER`. Submits market/limit orders via `alpaca-trade-api`. Degrades to a no-op stub when no key is configured. `OrderResult` dataclass carries `broker_order_id`, `status`, `timestamp`.
+- **`GET /gatekeeper/whitelist`** — returns the current approved instrument list.
+- Gatekeeper wired into both the async `/analyze` path (orchestrator.py) and the direct `/synthesize` path (api.py).
+
+**Phase 2 — Architecture Hardening**
+- **`app/runs_pg.py`** — `PgRunStore`: PostgreSQL-backed RunStore (psycopg2 + SQLAlchemy). Schema auto-created on startup (`run_traces` table with JSONB `steps`/`report`/`blocked_reasons`). Preserves identical `RunHandle` interface — zero caller changes. Activated via `AGENTIC_RUN_STORE_BACKEND=postgres`.
+- **`build_run_store()` factory** (runs.py) — selects memory vs. postgres backend at startup. `main.py` now calls the factory instead of instantiating `RunStore()` directly.
+- **`app/batch_orchestrator.py`** — `run_batch()`: concurrent analysis of up to 7 whitelisted tickers via `asyncio.gather` + `asyncio.Semaphore(AGENTIC_BATCH_CONCURRENCY=3)`. Each ticker runs `run_analysis_job` in its own `asyncio.to_thread`. Fixes the Phase 5 `RuntimeError: Executor is already running` regression.
+- **`POST /analyze/batch`** — new endpoint. Accepts `{"tickers": [...], "question": "...", "horizon_days": 30}`. Returns `{started: [{ticker, run_id}], skipped: [{ticker, reason}]}` immediately; callers poll `GET /runs/{id}` per ticker.
+- **`app/market_data.py`** — multi-source market data with automatic fallback. Provider chain: Polygon.io → Alpaca Market Data → yfinance. Configured via `AGENTIC_MARKET_DATA_CHAIN`. `finance_tools.fetch_quote()` now delegates here — all CrewAI agents transparently use the best available source.
+- **`app/auth.py`** — JWT (HS256, 8 h TTL) opt-in authentication. `POST /auth/token` (OAuth2 password form). `Depends(require_auth)` on `/analyze`, `/synthesize`, `/analyze/batch`. When `AGENTIC_AUTH_ENABLED=false` (default) the dependency is a no-op — zero breaking change.
+- **`docker-compose.yml`**: added `postgres:16-alpine` service with healthcheck; `agentic-engine` `depends_on: postgres: condition: service_healthy`; new `pg_run_store` named volume. All new env vars forwarded.
+- **`.env.example`** extended with v1.4 sections: RunStore, Broker, Market Data, JWT Auth, Batch Concurrency.
+- **`requirements.txt`** additions: `psycopg2-binary`, `alpaca-trade-api`, `polygon-api-client`, `python-jose[cryptography]`, `passlib[bcrypt]`.
+
+### Changed
+- `app/config.py`: 10 new settings with safe defaults (`run_store_backend`, `postgres_dsn`, `alpaca_key/secret/paper`, `market_data_chain`, `polygon_api_key`, `batch_concurrency`, `auth_enabled/secret/admin_password`).
+- `app/main.py`: `RunStore()` → `build_run_store()`; `auth_router` included; startup log extended with `run_store` + `auth` fields.
+- `app/api.py`: full rewrite to add `BatchAnalyzeRequest`, `/analyze/batch`, `GET /gatekeeper/whitelist`, `AuthDep` on all write endpoints, gatekeeper applied on `/synthesize` path.
+- `app/finance_tools.py`: `fetch_quote()` now delegates to `market_data.fetch_quote_resilient()` — Polygon/Alpaca primary, yfinance fallback.
+
+## [1.3.5] — 2026-06-17 · Mega cross-referenced analysis — *v1.3 Phase 5*
+
+### Added
+- **`macro_context` wired into CrewAI inputs** (`engine.py`): `SynthesizeRequest.macro_context` was already in the schema but not passed to the crew. Now injected as `{macro_context}` in both the synthesis task (`SYNTHESIS_TASK` in `prompts.py`) and the `inputs` dict. The manager prompt instructs scaling `max_position_pct` to the regime's `recommended_exposure_pct`.
+- **`docs/analysis/MEGA_ANALYSIS_2026-06-17.md`**: live crew analysis of 7 instruments (SPCX, NVDA, GOOGL, AAPL, MSFT, AMZN, UVXY) under one shared VIX-regime anchor (VIX=16.08, elevated, contango, market_heat=medium, 72% recommended exposure). All 7 run_ids listed and verified.
+- **`interval` field on `AnalyzeRequest`** (Phase 4 backfill — now used in Phase 5 runs).
+
+### Changed
+- **`SYNTHESIS_TASK` prompt** (prompts.py): added `{macro_context}` placeholder and cross-portfolio regime scaling instruction. See PROMPT_ENGINEERING_LOG Family 6.
+
+### Known issues documented
+- **CrewAI executor concurrency**: firing 7 simultaneous `/analyze` calls fails with `RuntimeError: Executor is already running`. The singleton `CrewEngine` cannot run concurrent kickoffs — runs must be queued or submitted sequentially. MSFT completed (first), 6 others failed; all were re-run sequentially.
+- **maxpos=2% for large-caps in mega batch**: the crew applied the freshly-IPO'd cap (intended for SPCX) across all names when the macro context included SPCX. Honest assessment: large-caps should receive ×0.72 scaling from their unconditioned cap, not collapse to 2%.
+
+### Verified
+- All 7 run_ids resolved to valid `ProbabilityReport` objects (engine=crew, Gemini backend).
+- SPCX: bull 55%, max_pos 2% (IPO cap appropriate). AMZN: bull 60%, strongest directional read. UVXY: neutral 50% (correct for contango/decay regime).
+- `macro_context` present in synthesis inputs confirmed via agent output logs.
+
+## [1.3.4] — 2026-06-17 · Regime alerts + intraday — *v1.3 Phase 4*
+
+### Added
+- **VIX-regime / market-heat change detection** (`App.tsx`): on each 90 s `/market-live` refresh, `vix.regime` and `risk_summary.market_heat` are diffed against the previous snapshot; any change fires an `AlertEntry`.
+- **Alert toast** (`AlertToast.tsx`): fixed-position banner (bottom-right, `var(--bear)` border) shown on regime/heat transitions; auto-dismisses after 8 s or on click.
+- **Alert log panel** (`AlertLog.tsx`): persisted to `localStorage` (`desk01.alerts.v1`, 50-entry cap); rendered above the history bar in Analysis Mode.
+- **Intraday / multi-day prediction interval toggle** (`RequestForm.tsx`): MULTI-DAY (1d bars, horizon from slider) vs. INTRADAY 5m (5-minute bars, forces `horizon_days=1`). Interval forwarded to `POST /analyze` → `build_forecast()`.
+- **`interval` field on `AnalyzeRequest`** (backend `schemas.py`): `"1d"` default, `"5m"` for intraday. Threaded through `orchestrator.py` → `build_forecast(interval=...)`.
+
+### Fixed
+- Removed `tgcrypto` from `agentic-engine/requirements.txt` — optional C-extension speedup for Pyrogram's crypto that requires `gcc` (absent from the slim Python image). Pyrogram auto-falls back to pyaes.
+
+### Verified
+- Alert log: injected a `regime: elevated→stress` event via browser eval → panel renders "1 EVENT · REGIME · ELEVATED → STRESS"; survives reload.
+- Interval toggle: MULTI-DAY / INTRADAY 5m buttons rendered in order ticket; horizon slider disabled in intraday mode.
+- 0 console errors; tsc clean build.
+
+## [1.3.3] — 2026-06-17 · Predictive GBM charts — *v1.3 Phase 3*
+
+### Added
+- **`build_forecast()` (`services/agentic-engine/app/forecast.py`)**: GBM closed-form lognormal p10/p50/p90 projection. Fetches yfinance history, computes annualised drift μ and vol σ from log-returns, then tilts μ by `(bullish − bearish) × 0.15 × σ` — so the chart's projected path reflects the crew's directional thesis. Supports daily (`1d`) and intraday (`5m`) intervals. Degrades gracefully to `None` on yfinance failure or thin history (<20 bars).
+- **`Forecast` / `ForecastPoint` schemas** (schemas.py): `ticker`, `interval`, `model`, `anchor_price`, `drift_annual`, `vol_annual`, `directional_bias`, `history[]`, `projection[]`, `generated_at`.
+- **`forecast: Forecast | None`** appended to `ProbabilityReport` — backward-compatible (existing reports validate without it).
+- **Orchestrator attachment**: after synthesis + output rail, `build_forecast()` is called and the result is model-copied onto the report before storing on the `RunStore`.
+- **`ForecastChart` component** (`frontend/.../ForecastChart.tsx`): pure dependency-free SVG (720×250) — solid history line, dashed amber median projection, amber-tint p10–p90 cone; price Y-axis ticks, "now" divider, legend with terminal p50 value and uncertainty range. Matches DESK/01 terminal aesthetic.
+- **`Forecast` / `ForecastPoint` TypeScript interfaces** added to `types.ts`.
+- **`ReportView`** renders `<ForecastChart>` between the analysis grid and the execution plan when `r.forecast` is present.
+
+### Fixed
+- **Stale `runId` console errors**: `AgentLog` was receiving `runId ?? report?.run_id ?? null`, so on page reload it polled the restored report's `run_id` against the new empty `RunStore` (7× 404). Fixed by passing only `runId` (current-session ephemeral) — never `report?.run_id`.
+
+### Verified
+- API-level: NVDA forecast — anchor $207.41, bias +0.25, p50 terminal $235.79, p10–p90 $199.50–$278.68.
+- Browser (Playwright): Analysis Mode loaded → 0 console errors → RUN ANALYSIS submitted → report + forecast SVG chart rendered (confirmed via `img` element in accessibility snapshot). History bar shows two entries.
+
+## [1.3.1] — 2026-06-17 · Persistence & memory — *v1.3 "Live Forecast Desk" Phase 2*
+
+### Added
+- **`GET /memory/{ticker}` (agentic-engine)** — surfaces the persisted per-ticker analysis history from `agent_memory.db` (the same prior turns the crew injects into the Fundamental Analyst). `app.state.memory` added to the lifespan.
+- **Frontend persistence (`src/storage.ts`)** — `localStorage` for the last report, a 20-entry analysis history, and the last `/market-live` snapshot. Restored on mount so a refresh no longer wipes the desk.
+- **History bar (`components/HistoryBar.tsx`)** — clickable strip of past analyses (ticker · bull% · time) that re-opens a stored report; survives reloads.
+
+### Changed
+- Command Center renders the **last cached market snapshot instantly** on load while the fresh `/market-live` fetch resolves (and during brief backend downtime).
+
+### Verified
+- `/memory/NVDA` and `/memory/GOOGL` return persisted crew turns across container restarts (volume-backed).
+- Browser (Playwright): ran an NVDA analysis → **reloaded the page** → report fully restored + History chip "NVDA 50% 12:48" present; 0 console errors.
+
+## [1.3.0] — 2026-06-17 · Async run/poll pipeline — *v1.3 "Live Forecast Desk" Phase 1*
+
+### Fixed
+- **Dashboard `TimeoutError: signal timed out`**: the browser waited synchronously on the n8n webhook, which ran the whole 6-agent crew internally before responding (minutes) → the 120 s `AbortSignal` fired, then the fallback died on `/query`'s 60 s timeout. Root fix is an async run/poll pattern (below) — the UI no longer blocks on the crew.
+- **`/market-live → 404`**: the running RAG container was a stale build predating the route (`api.py:56`); rebuilt. The whole v1.2 source (finance tools, updater) was likewise undeployed until this rebuild.
+
+### Added
+- **`POST /analyze` (agentic-engine, `app/orchestrator.py`)** — self-contained async orchestrator: guardrails input rail → RAG `/query` → vision (if chart) → crew synthesis → guardrails **output** rail. Returns `{run_id}` in <30 ms and runs the blocking chain in a worker thread (`asyncio.to_thread`). Degrades open on a guardrails outage.
+- **Run lifecycle on `RunStore`/`RunTrace`** — `status` (running/done/blocked/error) + `report` + `error` + `blocked_reasons`; `GET /runs/{id}` now serves the finished report so the dashboard can poll.
+- **`/market-live` TTL cache** (90 s) computed in a worker thread so the ~25 yfinance calls never block the event loop; warmed at startup off the request path. Cold 8.7 s → warm **0.005 s**.
+
+### Changed
+- **n8n `TradingDeskWf001` reworked to thin async dispatch** (sole orchestrator, per design choice): kept payload validation, the Ollama ticker-extractor, and the input guardrails gate; replaced the blocking RAG→Vision→Synthesize→output-rail tail with one POST to `/analyze`, responding `{run_id}` in ~0.1–0.2 s. `volatility_desk` is now captured and forwarded (was silently dropped).
+- **Frontend `analyze()` → start-and-poll**: posts to the webhook (falls back to direct `/analyze` if n8n is unreachable), then polls `GET /runs/{id}` every 1.5 s, driving the live Agent Trace; no client-side timeout. Command Center desks pre-select their ticker in the order form.
+- **docker-compose LLM keys now source from the prefixed `.env` vars** (`${AGENTIC_GOOGLE_API_KEY:-${GOOGLE_API_KEY:-}}`, etc.) — permanently fixes the host-env shadowing gotcha where the shell's stale `AIza` key masked the working `AQ.` key in `.env`.
+- **`updater.py` `ACTIVE_TICKERS`**: bogus `"SPACE"` → `"SPCX"`.
+
+### Verified
+- `POST /analyze` → run_id in **0.029 s**; crew completes ~22 s (NVDA) / ~34 s (GOOGL), `engine=crew`, live Gemini probe OK.
+- `/market-live` 200 (warm 0.005 s); Command Center renders live (SPY/QQQ/^GSPC/^NDX, VIX regime, 6 desks) with **0 console errors**.
+- n8n webhook `{run_id}` in ~0.1 s (direct :5678 + dashboard proxy :3002); insider-information request blocked at the input rail through the reworked flow.
+- Full GOOGL analysis driven through the UI (Playwright): bull 55% / neutral 30% / bear 15%, vol ELEVATED, paper LONG plan (entry 373.25 / target 385 / stop 367, R/R 1.88), live agent trace — **no timeout**.
 
 ## [1.0.4] — 2026-06-17 · Output-rail + extractor bug fixes
 

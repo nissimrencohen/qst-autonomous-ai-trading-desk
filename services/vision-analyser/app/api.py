@@ -7,8 +7,8 @@ import time
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.config import settings
-from app.inference import get_analyser
-from app.schemas import ConditionScoreResponse
+from app.inference import get_analyser, describe_image
+from app.schemas import ConditionScoreResponse, DescribeResponse
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -58,3 +58,27 @@ async def analyse_chart(
         model_backend=analysis.backend,
         latency_ms=round(latency_ms, 2),
     )
+
+@router.post("/describe", response_model=DescribeResponse, tags=["analysis"])
+async def describe_chart_endpoint(
+    image: UploadFile = File(description="Image to describe"),
+) -> DescribeResponse:
+    """Extract text and describe the image via LLM."""
+    if image.content_type not in _ALLOWED_TYPES:
+        raise HTTPException(415, f"unsupported content type: {image.content_type}")
+    data = await image.read()
+    if len(data) > settings.max_image_bytes:
+        raise HTTPException(413, "image exceeds size limit")
+    if not data:
+        raise HTTPException(422, "empty upload")
+
+    t0 = time.perf_counter()
+    desc_text, backend = describe_image(data)
+    latency_ms = (time.perf_counter() - t0) * 1000
+
+    return DescribeResponse(
+        description=desc_text,
+        model_backend=backend,
+        latency_ms=round(latency_ms, 2),
+    )
+

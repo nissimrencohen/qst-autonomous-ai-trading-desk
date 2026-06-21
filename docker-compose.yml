@@ -17,16 +17,37 @@ x-helicone-env: &helicone-env
   HELICONE_API_KEY: ${HELICONE_API_KEY:-}
   HELICONE_CACHE_ENABLED: ${HELICONE_CACHE_ENABLED:-true}
 
+# Langfuse self-hosted prompt tracing (opt-in).
+# Start with: docker compose --profile langfuse up -d
+# Then set LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY in your .env after
+# creating a project in the Langfuse UI at http://localhost:3001.
+x-langfuse-env: &langfuse-env
+  AGENTIC_LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+  AGENTIC_LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+  AGENTIC_LANGFUSE_HOST: ${LANGFUSE_HOST:-http://langfuse:3000}
+  RAG_LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+  RAG_LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+  RAG_LANGFUSE_HOST: ${LANGFUSE_HOST:-http://langfuse:3000}
+
+# Arize Phoenix self-hosted evaluation UI (opt-in).
+# Start with: docker compose --profile phoenix up -d
+# UI at http://localhost:6006
+x-phoenix-env: &phoenix-env
+  AGENTIC_PHOENIX_ENDPOINT: ${PHOENIX_ENDPOINT:-}
+  AGENTIC_EVAL_BACKEND: ${EVAL_BACKEND:-schema}
+  AGENTIC_EVAL_JUDGE_MODEL: ${EVAL_JUDGE_MODEL:-}
+
 services:
   rag-service:
     <<: *defaults
     build: ./services/rag-service
     ports: ["8001:8001"]
     environment:
-      <<: [*otel-env, *helicone-env]
+      <<: [*otel-env, *helicone-env, *langfuse-env]
       OTEL_SERVICE_NAME: rag-service
       RAG_HELICONE_API_KEY: ${HELICONE_API_KEY:-}
       RAG_HELICONE_CACHE_ENABLED: ${HELICONE_CACHE_ENABLED:-true}
+      RAG_FORCE_LOCAL_OLLAMA: ${FORCE_LOCAL_OLLAMA:-false}
       RAG_ENVIRONMENT: ${ENVIRONMENT:-dev}
       RAG_LOG_LEVEL: ${LOG_LEVEL:-INFO}
       RAG_STORE_BACKEND: chroma
@@ -38,15 +59,15 @@ services:
       RAG_AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
-      # LLM router — multi-provider fallback chain for summarizer_backend=litellm
-      RAG_LLM_PROVIDER_CHAIN: ${LLM_PROVIDER_CHAIN:-groq,gemini,openai,ollama}
-      RAG_GROQ_API_KEY: ${GROQ_API_KEY:-}
+      # LLM router — budget-first: Groq (free) → OpenAI → Gemini → Ollama
+      RAG_LLM_PROVIDER_CHAIN: ${LLM_PROVIDER_CHAIN:-groq,openai,gemini,ollama}
+      RAG_GROQ_API_KEY: ${RAG_GROQ_API_KEY:-${GROQ_API_KEY:-}}
       RAG_GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
-      RAG_GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
-      RAG_GEMINI_MODEL: ${GEMINI_MODEL:-gemini/gemini-2.0-flash}
-      RAG_OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      RAG_OPENAI_API_KEY: ${RAG_OPENAI_API_KEY:-${OPENAI_API_KEY:-}}
       RAG_OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
-      RAG_GITHUB_API_KEY: ${GITHUB_API_KEY:-}
+      RAG_GOOGLE_API_KEY: ${RAG_GOOGLE_API_KEY:-${GOOGLE_API_KEY:-}}
+      RAG_GEMINI_MODEL: ${GEMINI_MODEL:-gemini/gemini-2.5-flash}
+      RAG_GITHUB_API_KEY: ${RAG_GITHUB_API_KEY:-${GITHUB_API_KEY:-}}
       RAG_GITHUB_MODEL: ${GITHUB_MODEL:-gpt-4o-mini}
     volumes:
       - chroma_data:/srv/chroma_db
@@ -62,16 +83,24 @@ services:
       VISION_LOG_LEVEL: ${LOG_LEVEL:-INFO}
       VISION_MODEL_BACKEND: ${VISION_MODEL_BACKEND:-heuristic}
       VISION_MODEL_PATH: ${VISION_MODEL_PATH:-}
+      # LLM vision backend (VISION_MODEL_BACKEND=llm)
+      # Step 1: gpt-4o-mini (fast/cheap); Step 2: gemini-2.5-flash (escalation)
+      VISION_OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      VISION_GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      VISION_LLM_VISION_PRIMARY_MODEL: ${VISION_LLM_PRIMARY:-gpt-4o-mini}
+      VISION_LLM_VISION_ESCALATION_MODEL: ${VISION_LLM_ESCALATION:-gemini/gemini-2.5-flash}
+      VISION_LLM_VISION_ESCALATION_THRESHOLD: ${VISION_ESCALATION_THRESHOLD:-0.60}
 
   agentic-engine:
     <<: *defaults
     build: ./services/agentic-engine
     ports: ["8003:8003"]
     environment:
-      <<: [*otel-env, *helicone-env]
+      <<: [*otel-env, *helicone-env, *langfuse-env, *phoenix-env]
       OTEL_SERVICE_NAME: agentic-engine
       AGENTIC_HELICONE_API_KEY: ${HELICONE_API_KEY:-}
       AGENTIC_HELICONE_CACHE_ENABLED: ${HELICONE_CACHE_ENABLED:-true}
+      AGENTIC_FORCE_LOCAL_OLLAMA: ${FORCE_LOCAL_OLLAMA:-false}
       AGENTIC_ENVIRONMENT: ${ENVIRONMENT:-dev}
       AGENTIC_LOG_LEVEL: ${LOG_LEVEL:-INFO}
       AGENTIC_ENGINE_BACKEND: ${AGENTIC_ENGINE_BACKEND:-deterministic}
@@ -80,24 +109,56 @@ services:
       AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
-      # LLM router — multi-provider fallback chain
-      AGENTIC_LLM_PROVIDER_CHAIN: ${LLM_PROVIDER_CHAIN:-groq,gemini,openai,ollama}
-      AGENTIC_GROQ_API_KEY: ${GROQ_API_KEY:-}
+      # LLM router — budget-first: Groq (free) → OpenAI → Gemini (paid) → Ollama
+      AGENTIC_LLM_PROVIDER_CHAIN: ${LLM_PROVIDER_CHAIN:-groq,openai,gemini,ollama}
+      AGENTIC_GROQ_API_KEY: ${AGENTIC_GROQ_API_KEY:-${GROQ_API_KEY:-}}
       AGENTIC_GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
-      AGENTIC_GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
-      AGENTIC_GEMINI_MODEL: ${GEMINI_MODEL:-gemini/gemini-2.0-flash}
-      AGENTIC_OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AGENTIC_OPENAI_API_KEY: ${AGENTIC_OPENAI_API_KEY:-${OPENAI_API_KEY:-}}
       AGENTIC_OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
-      AGENTIC_GITHUB_API_KEY: ${GITHUB_API_KEY:-}
+      AGENTIC_GOOGLE_API_KEY: ${AGENTIC_GOOGLE_API_KEY:-${GOOGLE_API_KEY:-}}
+      AGENTIC_GEMINI_MODEL: ${GEMINI_MODEL:-gemini/gemini-2.5-flash}
+      AGENTIC_GITHUB_API_KEY: ${AGENTIC_GITHUB_API_KEY:-${GITHUB_API_KEY:-}}
       AGENTIC_GITHUB_MODEL: ${GITHUB_MODEL:-gpt-4o-mini}
       AGENTIC_OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
       AGENTIC_OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
       # Web search
       AGENTIC_WEB_SEARCH_ENABLED: ${WEB_SEARCH_ENABLED:-true}
-      AGENTIC_TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      AGENTIC_TAVILY_API_KEY: ${AGENTIC_TAVILY_API_KEY:-${TAVILY_API_KEY:-}}
+      # Market-data / finance tools
+      AGENTIC_FINANCE_TOOLS_ENABLED: ${FINANCE_TOOLS_ENABLED:-true}
+      AGENTIC_FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
+      # MCP (Model Context Protocol) market-data layer
+      AGENTIC_MCP_ENABLED: ${MCP_ENABLED:-true}
+      AGENTIC_MCP_CREW_ADAPTER: ${MCP_CREW_ADAPTER:-false}
+      # v1.4: multi-source market data
+      AGENTIC_MARKET_DATA_CHAIN: ${MARKET_DATA_CHAIN:-polygon,alpaca,yfinance}
+      AGENTIC_POLYGON_API_KEY: ${POLYGON_API_KEY:-}
+      # v1.4: Alpaca broker (paper by default)
+      AGENTIC_ALPACA_KEY: ${ALPACA_KEY:-}
+      AGENTIC_ALPACA_SECRET: ${ALPACA_SECRET:-}
+      AGENTIC_ALPACA_PAPER: ${ALPACA_PAPER:-true}
+      # v1.4: durable RunStore
+      AGENTIC_RUN_STORE_BACKEND: ${RUN_STORE_BACKEND:-memory}
+      AGENTIC_POSTGRES_DSN: ${POSTGRES_DSN:-postgresql+psycopg2://trading:trading@postgres:5432/trading_desk}
+      # JWT authentication + DB-backed RBAC (login flow always on; gate optional)
+      AGENTIC_AUTH_ENABLED: ${AUTH_ENABLED:-false}
+      AGENTIC_AUTH_SECRET: ${AUTH_SECRET:-changeme-generate-with-openssl-rand-hex-32}
+      # Seed credentials — applied only on first boot when the users table is empty
+      AGENTIC_AUTH_ADMIN_PASSWORD: ${AUTH_ADMIN_PASSWORD:-admin}
+      AGENTIC_AUTH_USER_PASSWORD: ${AUTH_USER_PASSWORD:-user}
+      AGENTIC_USERS_DB_PATH: /srv/data/users.db
+      # Continuous Synthesis Loop
+      AGENTIC_SYNTHESIS_LOOP_ENABLED: ${AGENTIC_SYNTHESIS_LOOP_ENABLED:-false}
+      AGENTIC_SYNTHESIS_INTERVAL_S: ${AGENTIC_SYNTHESIS_INTERVAL_S:-90}
+      AGENTIC_INGESTION_ENABLED: ${INGESTION_ENABLED:-false}
+      # v1.4: batch concurrency cap
+      AGENTIC_BATCH_CONCURRENCY: ${BATCH_CONCURRENCY:-3}
       # Conversational memory
       AGENTIC_MEMORY_BACKEND: ${MEMORY_BACKEND:-sqlite}
       AGENTIC_MEMORY_DB_PATH: /srv/data/agent_memory.db
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - agent_memory:/srv/data
 
@@ -121,18 +182,53 @@ services:
     ports: ["3002:80"]
     depends_on: [guardrails-service, rag-service, vision-analyser, agentic-engine]
 
-  admin-panel:
+  # ── Langfuse self-hosted prompt tracing (opt-in) ────────────────────────────
+  # Start with: docker compose --profile langfuse up -d
+  # UI at http://localhost:3000 — create an account + project, then set
+  # LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY in your .env file.
+  langfuse-db:
     <<: *defaults
-    build: ./frontend/admin-panel
-    ports: ["8501:8501"]
+    image: postgres:16-alpine
+    profiles: [langfuse]
     environment:
-      RAG_URL: http://rag-service:8001
-      VISION_URL: http://vision-analyser:8002
-      AGENTIC_URL: http://agentic-engine:8003
-      GUARDRAILS_URL: http://guardrails-service:8004
-      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
-    depends_on: [rag-service, vision-analyser]
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+      POSTGRES_DB: langfuse
+    volumes:
+      - langfuse_db:/var/lib/postgresql/data
+
+  langfuse:
+    <<: *defaults
+    image: langfuse/langfuse:2
+    profiles: [langfuse]
+    ports: ["3003:3000"]   # host 3003 avoids collision; internal stays :3000
+    depends_on: [langfuse-db]
+    environment:
+      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
+      NEXTAUTH_URL: http://localhost:3003
+      # Generate with: openssl rand -base64 32
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-changeme-at-least-32-chars-long!!}
+      SALT: ${LANGFUSE_SALT:-changeme-salt-value}
+      # 64 hex chars (32 bytes) — generate with: openssl rand -hex 32
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
+
+  # ── Arize Phoenix self-hosted eval UI (opt-in) ──────────────────────────────
+  # Start with: docker compose --profile phoenix up -d
+  # UI at http://localhost:6006
+  # After starting, set PHOENIX_ENDPOINT=http://phoenix:6006 and
+  # EVAL_BACKEND=deepeval in your .env, then rebuild agentic-engine.
+  phoenix:
+    <<: *defaults
+    image: arizephoenix/phoenix:latest
+    profiles: [phoenix]
+    ports:
+      - "6006:6006"     # Phoenix UI
+    environment:
+      PHOENIX_WORKING_DIR: /root/.phoenix
+    volumes:
+      - phoenix_data:/root/.phoenix
 
   # ── Observability stack (opt-in) ────────────────────────────────────────────
   # Start with: docker compose --profile observability up -d
@@ -147,6 +243,25 @@ services:
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
 
+  # ── v1.4: PostgreSQL for durable RunStore ───────────────────────────────────
+  # Start automatically (no profile) alongside the main stack.
+  # Set AGENTIC_RUN_STORE_BACKEND=postgres in .env to activate.
+  postgres:
+    <<: *defaults
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: trading
+      POSTGRES_PASSWORD: trading
+      POSTGRES_DB: trading_desk
+    volumes:
+      - pg_run_store:/var/lib/postgresql/data
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trading -d trading_desk"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 networks:
   trading-desk:
     driver: bridge
@@ -154,3 +269,6 @@ networks:
 volumes:
   chroma_data:
   agent_memory:
+  langfuse_db:
+  phoenix_data:
+  pg_run_store:

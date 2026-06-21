@@ -35,17 +35,21 @@ NVDA_RAG = {
     ],
 }
 
-CUE_RAG = {
+# Binary-catalyst fixture on a WHITELISTED instrument (V2.0 strict watchlist).
+# A pass/fail regulatory readout is the canonical "binary event" the
+# deterministic engine caps position size on.
+SPCX_BINARY_RAG = {
     "summary": (
-        "- Cue Biopharma released interim Phase 1b data for CUE-101 with an "
-        "overall response rate of 36%. [source: CUE Phase 1b update]\n"
-        "Coverage: CUE Phase 1b update"
+        "- SPCX faces a binary near-term catalyst: the FAA's go/no-go approval "
+        "for the next Starship orbital flight is a pass/fail readout expected "
+        "within the horizon. [source: SPCX Starship launch-license review]\n"
+        "Coverage: SPCX Starship launch-license review"
     ),
     "retrieved": [
         {
-            "id": "CUE-1", "title": "CUE Phase 1b update",
-            "source": "clinical update", "published_at": "2026-05-19",
-            "text": "Interim Phase 1b data...",
+            "id": "SPCX-1", "title": "SPCX Starship launch-license review",
+            "source": "regulatory filing", "published_at": "2026-06-10",
+            "text": "The FAA's binary go/no-go approval for the next Starship flight...",
         }
     ],
 }
@@ -97,8 +101,8 @@ def test_missing_vision_degrades_gracefully(client: TestClient) -> None:
 
 
 def test_binary_catalyst_caps_position(client: TestClient) -> None:
-    report = _synth(client, ticker="CUE", rag=CUE_RAG,
-                    question="How risky is the Phase 1b readout?").json()
+    report = _synth(client, ticker="SPCX", rag=SPCX_BINARY_RAG,
+                    question="How risky is the Starship launch-license readout?").json()
     assert report["risk_assessment"]["risk_level"] == "high"
     assert report["risk_assessment"]["max_position_pct"] <= 2.0
 
@@ -109,7 +113,8 @@ def test_run_trace_is_retrievable(client: TestClient) -> None:
     assert res.status_code == 200
     trace = res.json()
     steps = [s["step"] for s in trace["steps"]]
-    assert steps == ["technical_analysis", "fundamental_analysis", "risk_synthesis"]
+    # v1.4: gatekeeper step is appended after synthesis on the /synthesize path
+    assert steps == ["technical_analysis", "fundamental_analysis", "risk_synthesis", "gatekeeper"]
     assert trace["finished_at"] is not None
 
 

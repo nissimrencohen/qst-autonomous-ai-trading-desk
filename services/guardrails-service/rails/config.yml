@@ -41,7 +41,8 @@ prompts:
 
       Policy — the request must be ALLOWED if:
       A1. It asks for analysis, probabilities, risks, or scenarios for a
-          listed asset (e.g., NVDA, ESLT, NXSN, TOND, CUE), including
+          listed asset (e.g., SPCX, MSFT, AAPL, NVDA, GOOGL, AMZN, UPRO, TQQQ, VIXY, SVXY), index (e.g., VIX, SPX),
+          general market questions, or macro-economic questions, including
           aggressive or speculative strategies that are legal.
       A2. It criticizes or stress-tests a prior analysis.
 

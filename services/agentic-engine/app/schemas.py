@@ -7,7 +7,9 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from app.watchlist import assert_whitelisted
 
 RiskLevel = Literal["low", "medium", "high"]
 
@@ -40,6 +42,53 @@ class SynthesizeRequest(BaseModel):
     horizon_days: int = Field(default=30, ge=1, le=365)
     rag: RagInput
     vision: VisionInput | None = None
+    # When True (VOLATILITY DESK mode in the UI), the Volatility Analyst leads
+    # and the report must carry a volatility_view. Optional → backward compatible.
+    volatility_desk: bool = False
+    # Optional shared macro/VIX regime context injected by the orchestrator so a
+    # batch of tickers can be cross-referenced against ONE market regime (Phase 5).
+    macro_context: str | None = None
+    # Social media signals for this ticker, pre-formatted by the pipeline.
+    # Empty string when the pipeline is disabled or no recent signals exist.
+    social_context: str = ""
+
+    # Cached technical indicators (RSI/MACD/Bollinger meta) from the ingestion
+    # store. Lets the DeterministicEngine derive a directional tilt when no chart
+    # (vision) is present — i.e. the continuous/offline path (Bug #3). Ignored by
+    # the CrewEngine, which pulls TA via get_technical_indicators.
+    ta_signal: dict | None = None
+
+    # Strict watchlist enforcement (mission Req 1): reject off-list tickers
+    # before any synthesis work begins, and normalise to the canonical symbol.
+    @field_validator("ticker")
+    @classmethod
+    def _enforce_watchlist(cls, v: str) -> str:
+        return assert_whitelisted(v)
+
+
+class AnalyzeRequest(BaseModel):
+    """Entry payload for the async orchestrator (POST /analyze).
+
+    Self-contained: the orchestrator runs guardrails → RAG → vision → synthesis
+    server-side in a background job and returns a run_id immediately, so neither
+    n8n nor the browser blocks on the (minutes-long) crew. The optional chart is
+    forwarded base64-encoded, mirroring the n8n webhook payload.
+    """
+    ticker: str = Field(min_length=1, max_length=12, examples=["NVDA"])
+    question: str = Field(min_length=3, max_length=500)
+    horizon_days: int = Field(default=30, ge=1, le=365)
+    volatility_desk: bool = False
+    chart_base64: str | None = None
+    chart_content_type: str | None = None
+    macro_context: str | None = None
+    # "1d" = daily bars (default); "5m" = intraday 5-minute bars (horizon_days=1)
+    interval: str = "1d"
+
+    # Strict watchlist enforcement (mission Req 1) — see SynthesizeRequest.
+    @field_validator("ticker")
+    @classmethod
+    def _enforce_watchlist(cls, v: str) -> str:
+        return assert_whitelisted(v)
 
 
 # ---- output ----------------------------------------------------------------
@@ -76,6 +125,76 @@ class RiskAssessment(BaseModel):
     notes: str = ""
 
 
+# ---- v2 institutional extensions (all optional — backward compatible) ------
+
+Side = Literal["long", "short", "flat"]
+
+
+class ExecutionPlan(BaseModel):
+    """Quant Execution Manager output — concrete, PAPER-ONLY trade parameters.
+
+    These are model-derived levels for a simulated/paper order, never an
+    instruction to trade real capital. The frontend gates execution behind an
+    explicit 'PAPER' button and never connects to a live broker.
+    """
+    side: Side = "flat"
+    order_type: Literal["market", "limit", "stop"] = "limit"
+    entry: float | None = Field(default=None, ge=0.0, description="Suggested entry price")
+    target: float | None = Field(default=None, ge=0.0, description="Profit target")
+    stop_loss: float | None = Field(default=None, ge=0.0, description="Protective stop")
+    risk_reward_ratio: float | None = Field(
+        default=None, ge=0.0, description="(target-entry)/(entry-stop) for a long"
+    )
+    reference_price: float | None = Field(
+        default=None, ge=0.0, description="Live quote the plan was anchored to"
+    )
+    rationale: str = ""
+    paper_only: bool = True
+
+
+class VolatilityView(BaseModel):
+    """VIX / volatility-desk read. Populated when the Volatility Analyst runs."""
+    vix_level: float | None = Field(default=None, ge=0.0)
+    term_structure: Literal["contango", "backwardation", "flat", "unknown"] = "unknown"
+    front_month: float | None = Field(default=None, ge=0.0)
+    back_month: float | None = Field(default=None, ge=0.0)
+    regime: Literal["calm", "elevated", "stress", "panic", "unknown"] = "unknown"
+    signal: str = ""
+
+
+class SpaceEconomyView(BaseModel):
+    """Space-sector read (Starlink / launch cadence / contracts). SPCX & peers."""
+    key_drivers: list[str] = []
+    launch_cadence: str = ""
+    rationale: str = ""
+    sources: list[str] = []
+
+
+class ForecastPoint(BaseModel):
+    t: str  # ISO date (daily) or ISO datetime (intraday)
+    close: float | None = None  # historical actual (None on the projection)
+    p10: float | None = None
+    p50: float | None = None  # median path
+    p90: float | None = None
+
+
+class Forecast(BaseModel):
+    """Transparent GBM price projection, drift-tilted by the crew's directional
+    bias. NOT a precision predictor — closed-form lognormal quantile bands whose
+    width grows with horizon (honest uncertainty). See PROMPT_ENGINEERING_LOG /
+    strict eval for its known limitations (no regime-switching, thin tails)."""
+    ticker: str
+    interval: str  # "1d" | "5m" | ...
+    model: str
+    anchor_price: float
+    drift_annual: float
+    vol_annual: float
+    directional_bias: float  # bullish − bearish, in [-1, 1]
+    history: list[ForecastPoint]
+    projection: list[ForecastPoint]
+    generated_at: str
+
+
 class ProbabilityReport(BaseModel):
     run_id: str
     ticker: str
@@ -91,6 +210,17 @@ class ProbabilityReport(BaseModel):
         min_length=1, description="Always non-empty — reports must carry uncertainty caveats"
     )
     engine_backend: str
+    # v2 extensions — optional so legacy reports & the deterministic engine validate
+    execution_plan: ExecutionPlan | None = None
+    volatility_view: VolatilityView | None = None
+    space_economy_view: SpaceEconomyView | None = None
+    forecast: Forecast | None = None  # predictive chart data (Phase 3)
+    # Chart-vision read of an uploaded chart (when one was provided). Surfaced so
+    # the UI can show that the chart was actually analysed and what it concluded.
+    vision: VisionInput | None = None
+
+
+RunStatus = Literal["running", "done", "blocked", "error"]
 
 
 class RunTrace(BaseModel):
@@ -99,3 +229,9 @@ class RunTrace(BaseModel):
     started_at: str
     finished_at: str | None
     steps: list[dict]
+    # async run/poll lifecycle (Phase 1): the dashboard polls GET /runs/{id} and
+    # reads these instead of blocking on the synthesis HTTP call.
+    status: RunStatus = "running"
+    report: ProbabilityReport | None = None
+    error: str | None = None
+    blocked_reasons: list[str] = []

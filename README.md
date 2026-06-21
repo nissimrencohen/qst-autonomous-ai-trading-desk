@@ -26,7 +26,7 @@ Full design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ```
 services/        rag-service · vision-analyser · agentic-engine · guardrails-service
-frontend/        trading-dashboard (React) · admin-panel (Streamlit)
+frontend/        trading-dashboard (React)
 orchestration/   n8n workflow exports
 infra/           docker-compose, deployment
 data/seed/       mock market data (NVDA, ESLT, NXSN, TOND, CUE)
@@ -36,10 +36,10 @@ tests/           cross-service integration tests
 ## Quick start
 
 ```bash
-docker compose up -d --build        # 4 services + n8n + dashboard + admin
+docker compose up -d --build        # 4 services + dashboard
 # import orchestration/n8n/workflows/analyze-request.json into n8n (:5678), activate
 python scripts/seed_rag.py          # seed the corpus (NVDA/ESLT/NXSN/TOND/CUE)
-# dashboard: http://localhost:3000 · admin: http://localhost:8501
+# dashboard: http://localhost:3002  (manual ingestion now lives in the INGEST tab, admin-only)
 ```
 
 Offline verification without Docker: `python scripts/e2e_local.py`

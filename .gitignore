@@ -35,9 +35,29 @@ chromadb/
 data/raw/
 *.ckpt
 
-# --- Docker ---
+# Runtime SQLite stores (users/RBAC, agent memory, chat, ingestion, etc.)
+# Global — covers root ./data and any services/*/data dir.
+*.db
+data/*.db
+*.sqlite
+*.sqlite3
+
+# --- Logs (root capture files can be 100MB+; never commit) ---
 *.log
+logs.txt
+*_logs.txt
+agentic_logs*.txt
+guardrails-logs.txt
 docker-compose.override.yml
+
+# --- Local tooling / agent state (not part of the project) ---
+.claude/
+.playwright-mcp/
+.deepeval/
+*-mcp/
+
+# --- Generated chart artifacts ---
+*_chart.png
 
 # --- IDE / OS ---
 .idea/

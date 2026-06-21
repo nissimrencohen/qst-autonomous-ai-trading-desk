@@ -21,3 +21,10 @@ class ConditionScoreResponse(BaseModel):
     )
     model_backend: str
     latency_ms: float
+
+class DescribeResponse(BaseModel):
+    """Detailed textual description of a chart or image."""
+    
+    description: str
+    model_backend: str
+    latency_ms: float
