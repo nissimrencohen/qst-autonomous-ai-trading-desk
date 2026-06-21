@@ -2,9 +2,15 @@
 
 Used to exercise the LLM vision backend end-to-end with a genuine chart image.
     python scripts/make_chart.py NVDA  ->  ./<TICKER>_chart.png
+
+Also importable by the E2E tests:
+    from make_chart import chart_base64
+    b64, content_type = chart_base64("NVDA")   # (None, None) on any failure
 """
 from __future__ import annotations
 
+import base64
+import io
 import sys
 from PIL import Image, ImageDraw, ImageFont
 
@@ -28,7 +34,8 @@ def fetch_ohlc(ticker: str, days: int = 60):
     return rows
 
 
-def render(ticker: str, rows) -> str:
+def build_image(ticker: str, rows) -> "Image.Image":
+    """Build the candlestick chart image in memory (no file I/O)."""
     lows = [r[3] for r in rows]
     highs = [r[2] for r in rows]
     lo, hi = min(lows), max(highs)
@@ -67,9 +74,32 @@ def render(ticker: str, rows) -> str:
 
     d.text((PAD_L, 10), f"{ticker}  daily  ({rows[0][4]:.2f} -> {rows[-1][4]:.2f})",
            fill=TXT, font=font)
+    return img
+
+
+def render(ticker: str, rows) -> str:
+    """Build the chart and save it to ./<TICKER>_chart.png; returns the path."""
     out = f"{ticker}_chart.png"
-    img.save(out)
+    build_image(ticker, rows).save(out)
     return out
+
+
+def render_bytes(ticker: str, days: int = 60) -> bytes:
+    """Fetch OHLC, render, and return PNG bytes (no file I/O)."""
+    buf = io.BytesIO()
+    build_image(ticker.upper(), fetch_ohlc(ticker, days)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def chart_base64(ticker: str) -> tuple[str | None, str | None]:
+    """Return (base64-PNG, "image/png") for a live chart, or (None, None) on any
+    failure (e.g. no network / yfinance unavailable). Lets E2E tests stay
+    self-contained — no checked-in chart asset required."""
+    try:
+        return base64.b64encode(render_bytes(ticker)).decode("utf-8"), "image/png"
+    except Exception as exc:  # noqa: BLE001
+        print(f"[make_chart] chart generation failed for {ticker}: {exc}")
+        return None, None
 
 
 if __name__ == "__main__":

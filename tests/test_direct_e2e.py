@@ -1,19 +1,24 @@
+import base64
+import io
 import json
+import sys
 import time
 import requests
 from pathlib import Path
 
-def run_direct_e2e():
-    chart_path = Path("cue_chart.jpeg")
-    if not chart_path.exists():
-        print(f"Error: {chart_path.absolute()} not found.")
-        return
+# make scripts/make_chart.py importable
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+from make_chart import chart_base64  # noqa: E402
 
-    ticker = "CUE"
-    question = "Provide a comprehensive technical and fundamental analysis for CUE."
-    
+WATCHLIST = {"SPCX", "MSFT", "AAPL", "NVDA", "GOOGL", "AMZN", "UPRO", "TQQQ", "VIXY", "SVXY"}
+
+
+def run_direct_e2e(ticker: str = "NVDA"):
+    ticker = ticker.upper()
+    question = f"Provide a comprehensive technical and fundamental analysis for {ticker}."
+
     t0 = time.perf_counter()
-    
+
     try:
         # 1. Guardrails Input
         print("1. Guardrails Input (/validate/input)...")
@@ -23,14 +28,25 @@ def run_direct_e2e():
         if not in_rail.get("allowed"):
             print(f"Blocked by input rail: {in_rail}")
             return
-            
-        # 2. Vision Analyser
+
+        # 2. Vision Analyser — render a live chart (no checked-in asset). Optional:
+        #    if generation/analysis fails, the pipeline proceeds without vision.
         print("2. Vision Analyser (/analyse)...")
-        with open(chart_path, "rb") as f:
-            vision_res_raw = requests.post("http://localhost:8002/analyse", data={"ticker": ticker}, files={"chart": (chart_path.name, f, "image/jpeg")})
+        vision_res = None
+        chart_b64, _ = chart_base64(ticker)
+        if chart_b64:
+            img_bytes = base64.b64decode(chart_b64)
+            vision_res_raw = requests.post(
+                "http://localhost:8002/analyse",
+                data={"ticker": ticker},
+                files={"chart": (f"{ticker}_chart.png", io.BytesIO(img_bytes), "image/png")},
+            )
             vision_res_raw.raise_for_status()
             vision_res = vision_res_raw.json()
-        
+            print(f"   vision: {vision_res.get('label')} ({vision_res.get('model_backend')})")
+        else:
+            print("   chart unavailable — continuing without vision")
+
         # 3. RAG Query
         print("3. RAG Query (/query)...")
         rag_res_raw = requests.post("http://localhost:8001/query", json={"ticker": ticker, "question": question, "k": 4})
@@ -51,8 +67,8 @@ def run_direct_e2e():
                 "score": vision_res.get("score"),
                 "label": vision_res.get("label"),
                 "confidence": vision_res.get("confidence"),
-                "patterns": vision_res.get("patterns", [])
-            }
+                "patterns": vision_res.get("patterns", {}),
+            } if vision_res else None,
         }
         synth_res_raw = requests.post("http://localhost:8003/synthesize", json=synth_payload)
         synth_res_raw.raise_for_status()
@@ -85,4 +101,4 @@ def run_direct_e2e():
         print(e.response.text)
 
 if __name__ == "__main__":
-    run_direct_e2e()
+    run_direct_e2e(sys.argv[1] if len(sys.argv) > 1 else "NVDA")
