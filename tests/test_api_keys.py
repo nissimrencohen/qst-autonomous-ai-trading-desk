@@ -7,7 +7,7 @@ import sys
 import time
 
 # Load the root .env file
-env_file = os.path.join(os.path.dirname(__file__), ".env")
+env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
 if os.path.exists(env_file):
     with open(env_file, encoding="utf-8", errors="ignore") as f:
         for line in f:

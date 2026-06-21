@@ -19,7 +19,7 @@ except ImportError:
     print("ERROR: python-dotenv not installed.  pip install python-dotenv")
     sys.exit(1)
 
-env_path = Path(__file__).parent / ".env"
+env_path = Path(__file__).resolve().parent.parent / ".env"
 if not env_path.exists():
     print(f"ERROR: .env not found at {env_path}")
     sys.exit(1)
