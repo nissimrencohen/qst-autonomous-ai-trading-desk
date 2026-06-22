@@ -1,5 +1,16 @@
-# Runtime artifacts produced by deploy_qst_aws.py — never commit these.
-.stage/            # exported Golden-State volume tarballs + source bundle (100s of MB)
-*.tar.gz           # volume / source archives
-*.pem              # EC2 private keys (also covered by the root .gitignore)
+# Runtime artifacts produced by deploy_qst_aws.py - never commit these.
+# NOTE: .gitignore does NOT support trailing/inline comments; keep each
+# pattern on its own line with comments on separate lines.
+
+# Deploy scratch dir: exported Golden-State volume tarballs + source bundle (100s of MB)
+.stage/
+
+# Volume / source archives (gzipped or plain)
+*.tar.gz
+*.tar
+
+# EC2 private keys (also covered by the root .gitignore *.pem rule)
+*.pem
+
+# Local Python bytecode
 __pycache__/
