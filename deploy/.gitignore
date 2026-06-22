@@ -1,0 +1,5 @@
+# Runtime artifacts produced by deploy_qst_aws.py — never commit these.
+.stage/            # exported Golden-State volume tarballs + source bundle (100s of MB)
+*.tar.gz           # volume / source archives
+*.pem              # EC2 private keys (also covered by the root .gitignore)
+__pycache__/
