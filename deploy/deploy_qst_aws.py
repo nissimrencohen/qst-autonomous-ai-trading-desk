@@ -321,6 +321,19 @@ def ensure_key_pair(ec2) -> Path:
         if "InvalidKeyPair.NotFound" not in str(e):
             raise
     log(f"creating key pair {KEY_NAME}")
+    # A stale .pem from a previous (torn-down) deploy no longer matches a freshly
+    # created AWS key, and on Windows it can be read-only/locked - which breaks
+    # the write with PermissionError. Force-remove it first so the new private
+    # key material lands cleanly.
+    if pem.exists():
+        try:
+            os.chmod(pem, stat.S_IWRITE)
+        except Exception:
+            pass
+        try:
+            pem.unlink()
+        except Exception as exc:
+            die(f"Stale key {pem} could not be removed ({exc}). Delete it manually and re-run.")
     resp = ec2.create_key_pair(KeyName=KEY_NAME)
     pem.write_text(resp["KeyMaterial"], encoding="utf-8")
     try:
