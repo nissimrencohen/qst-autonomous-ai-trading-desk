@@ -218,12 +218,19 @@ class LLMChartAnalyser:
         try:
             import litellm
 
-            kwargs: dict = {"model": model, "messages": messages, "max_tokens": 512}
+            # 2048 (not 512): gemini-2.5-flash is a "thinking" model whose
+            # reasoning tokens count toward the output budget — at 512 the JSON
+            # got truncated mid-object (no closing brace) and was silently
+            # dropped to the heuristic. Give both the reasoning and the small
+            # JSON room to complete.
+            kwargs: dict = {"model": model, "messages": messages, "max_tokens": 2048}
             if api_key:
                 kwargs["api_key"] = api_key
 
             resp = litellm.completion(**kwargs)
             raw = resp.choices[0].message.content or ""
+            # Strip ```json … ``` fences some models wrap the object in.
+            raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip(), flags=re.MULTILINE)
             m = re.search(r"\{.*\}", raw, re.DOTALL)
             if not m:
                 _log.warning("LLM vision %s returned no JSON: %s", model, raw[:200])

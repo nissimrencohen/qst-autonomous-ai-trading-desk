@@ -85,8 +85,10 @@ services:
       VISION_MODEL_PATH: ${VISION_MODEL_PATH:-}
       # LLM vision backend (VISION_MODEL_BACKEND=llm)
       # Step 1: gpt-4o-mini (fast/cheap); Step 2: gemini-2.5-flash (escalation)
-      VISION_OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      VISION_GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      # Keys live in .env under the AGENTIC_*/RAG_* prefixes (no bare GOOGLE_API_KEY),
+      # so fall through to those before the bare names.
+      VISION_OPENAI_API_KEY: ${VISION_OPENAI_API_KEY:-${AGENTIC_OPENAI_API_KEY:-${OPENAI_API_KEY:-}}}
+      VISION_GOOGLE_API_KEY: ${VISION_GOOGLE_API_KEY:-${AGENTIC_GOOGLE_API_KEY:-${GOOGLE_API_KEY:-}}}
       VISION_LLM_VISION_PRIMARY_MODEL: ${VISION_LLM_PRIMARY:-gpt-4o-mini}
       VISION_LLM_VISION_ESCALATION_MODEL: ${VISION_LLM_ESCALATION:-gemini/gemini-2.5-flash}
       VISION_LLM_VISION_ESCALATION_THRESHOLD: ${VISION_ESCALATION_THRESHOLD:-0.60}
