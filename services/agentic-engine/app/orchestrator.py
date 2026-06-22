@@ -17,6 +17,7 @@ this via `asyncio.to_thread`.
 from __future__ import annotations
 
 import base64
+import json
 import logging
 
 import requests
@@ -95,6 +96,18 @@ def _apply_output_rail(report, rag: RagInput, run: RunHandle):
         ]
         prose = " ".join([p for p in prose_parts if p]).strip()
         evidence = [d.text for d in rag.retrieved] + ([rag.summary] if rag.summary else [])
+        # Ground the output rail against the SAME MCP technical/fundamental
+        # snapshot the crew analysed. Without this, legitimate MCP-sourced metrics
+        # (RSI/MACD/price/P-E/market-cap) appear nowhere in the RAG evidence and
+        # trip the 'hallucinated_metric' rule — especially with verbose models
+        # like Gemini 3.x that cite more precise figures. Best-effort and
+        # in-process (same functions the crew's MCP tools call); never fail here.
+        try:
+            from app import mcp_data
+            evidence.append(json.dumps(mcp_data.get_technical_data(report.ticker)))
+            evidence.append(json.dumps(mcp_data.get_fundamental_data(report.ticker)))
+        except Exception as exc:  # noqa: BLE001
+            log.debug("output-rail MCP grounding skipped (%s)", exc)
         r = requests.post(
             f"{settings.guardrails_url}/validate/output",
             json={"text": prose or "n/a", "evidence": evidence},
@@ -106,7 +119,13 @@ def _apply_output_rail(report, rag: RagInput, run: RunHandle):
         run.log("output_rail", {"action": verdict.get("action"), "violations": len(verdict.get("violations", []))})
         if verdict.get("action") != "pass":
             reasons = [v.get("rule", "Output blocked") for v in verdict.get("violations", [])]
-            return None, reasons
+            # Per this function's contract AND the pipeline design ("Analysis
+            # report always flows through; only the ExecutionPlan leg is gated"),
+            # surface the rail's findings as caveats but DO NOT drop the report.
+            # Trade safety is enforced downstream by the Execution Gatekeeper; a
+            # prose-grounding flag should mark the report for human review, not
+            # erase it. Returning the report keeps the dashboard populated.
+            return report, reasons
         return report, []
     except Exception as exc:
         log.warning("output rail skipped (%s)", exc)
@@ -161,6 +180,12 @@ def run_analysis_job(req: AnalyzeRequest, engine, run: RunHandle, runs) -> None:
         if report is None:
             runs.set_blocked(run.run_id, ["Report flagged for human review"] + out_reasons)
             return
+        if out_reasons:
+            # Rail flagged ungrounded prose but the report still renders (flagged).
+            run.log("output_rail_caveat", {
+                "flags": out_reasons,
+                "note": "Report rendered with caveats; trade execution gated separately.",
+            })
 
         # ── Execution Gatekeeper (v1.4) ──────────────────────────────────────
         # Enforce whitelist + broker routing on the execution plan.

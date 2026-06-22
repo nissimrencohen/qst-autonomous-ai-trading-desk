@@ -207,7 +207,7 @@ def _vix_from_store_or_live(store) -> tuple[float, str]:
 
 # ── core briefing runner ──────────────────────────────────────────────────────
 
-async def run_daily_briefing(engine, runs, briefing_store: BriefingStore) -> dict[str, Any]:
+async def run_daily_briefing(engine, runs, briefing_store: BriefingStore, report_store=None) -> dict[str, Any]:
     """Execute the morning briefing pipeline — OFFLINE (Bug #1 fix).
 
     Reads the ingestion cache and runs the offline crew (no rag-service / live
@@ -238,10 +238,26 @@ async def run_daily_briefing(engine, runs, briefing_store: BriefingStore) -> dic
     instruments: list[dict] = []
     for ticker in _BRIEFING_TICKERS:
         question = _build_morning_question(ticker, vix, regime, gaps.get(ticker))
-        report = await asyncio.to_thread(
-            synthesize_ticker_offline, ticker, settings, offline_engine, runs, store,
-            horizon_days=5, question=question,
-        )
+        # Prefer the latest persisted desk report (e.g. from a /analyze batch /
+        # Golden Run) — it reflects the full LIVE crew with grounded MCP data and
+        # costs ZERO additional LLM calls. Only run the offline crew when no
+        # persisted report exists for this ticker.
+        report = None
+        if report_store is not None:
+            try:
+                stored = report_store.get(ticker)
+                if stored and stored.get("report"):
+                    from app.schemas import ProbabilityReport
+                    report = ProbabilityReport.model_validate(stored["report"])
+                    log.info("daily_briefing: reusing persisted report for %s", ticker)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("daily_briefing: could not reuse persisted %s (%s)", ticker, exc)
+                report = None
+        if report is None:
+            report = await asyncio.to_thread(
+                synthesize_ticker_offline, ticker, settings, offline_engine, runs, store,
+                horizon_days=5, question=question,
+            )
         status = "done" if report is not None else "error"
         crew_bull = report.probabilities.bullish if report else 0.0
         crew_bear = report.probabilities.bearish if report else 0.0

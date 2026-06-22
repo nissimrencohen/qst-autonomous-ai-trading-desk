@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     # Google Gemini
     google_api_key: SecretStr = SecretStr("")
     gemini_model: str = "gemini/gemini-2.5-flash"
+    # Secondary Gemini tier for the `gemini_flash` provider in llm_provider_chain.
+    # GA, much higher rate limits than the pro-preview flagship — the "next in
+    # line" the cascade degrades to when the primary hits a 429/quota.
+    gemini_flash_model: str = "gemini/gemini-3.5-flash"
 
     # OpenAI
     openai_api_key: SecretStr = SecretStr("")

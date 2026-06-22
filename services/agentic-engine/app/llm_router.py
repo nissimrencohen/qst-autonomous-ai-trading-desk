@@ -118,11 +118,33 @@ def pick_crewai_llm():
 
 # ── internal ──────────────────────────────────────────────────────────────────
 
+def _force_litellm_routing(LLM) -> None:
+    """Neutralise CrewAI's native-provider selection (idempotent).
+
+    Newer CrewAI pattern-matches any ``gemini/gemini-*`` tag to its *native*
+    google-genai SDK (not installed here), and ``_get_native_provider`` performs
+    the crashing import *before* the ``is_litellm`` guard can take effect — so
+    ``is_litellm=True`` alone isn't enough. This whole router is litellm-only by
+    design (the resilient-fallback swap mutates litellm model strings on one LLM
+    instance), so we make native selection a no-op: ``_get_native_provider``
+    returns ``None`` → construction falls through to LiteLLM with the full,
+    prefixed model string intact.
+    """
+    if getattr(LLM, "_qst_native_disabled", False):
+        return
+    LLM._get_native_provider = classmethod(lambda cls, provider: None)
+    LLM._qst_native_disabled = True
+
+
 def _entry_to_crewai_llm(name: str, model: str, kwargs: dict[str, Any]):
     """Convert a provider_chain entry into a crewai.LLM object."""
     from crewai import LLM
+    _force_litellm_routing(LLM)
 
-    crewai_kwargs: dict[str, Any] = {"temperature": 0.2}
+    # Gemini 3.x degrades / can infinite-loop below temperature 1.0 (LiteLLM
+    # warns explicitly); keep the deterministic 0.2 for every other provider.
+    temperature = 1.0 if "gemini-3" in str(model) else 0.2
+    crewai_kwargs: dict[str, Any] = {"temperature": temperature}
 
     if "api_key" in kwargs:
         crewai_kwargs["api_key"] = kwargs["api_key"]
@@ -140,7 +162,13 @@ def _entry_to_crewai_llm(name: str, model: str, kwargs: dict[str, Any]):
     if "extra_headers" in kwargs:
         crewai_kwargs["additional_params"] = {"extra_headers": kwargs["extra_headers"]}
 
-    return LLM(model=model, **crewai_kwargs)
+    # Force the LiteLLM path: this router (and the resilient-fallback swap in
+    # _attach_resilient_call) manipulates litellm-style model strings on a single
+    # LLM instance. CrewAI's *native* provider SDKs (e.g. gemini → google-genai,
+    # which isn't installed) would both crash at construction for newer model
+    # tags and break the model-swap fallback. is_litellm=True keeps every
+    # provider on the uniform LiteLLM codepath.
+    return LLM(model=model, is_litellm=True, **crewai_kwargs)
 
 
 def _crewai_ollama():
@@ -254,7 +282,7 @@ def _set_global_litellm_key(provider: str, key: str) -> None:
     elif provider in ("openai", "github"):
         litellm.openai_key = key
         os.environ["OPENAI_API_KEY"] = key
-    elif provider == "gemini":
+    elif provider in ("gemini", "gemini_flash"):
         litellm.vertex_key = key
         os.environ["GEMINI_API_KEY"] = key
 
@@ -298,6 +326,14 @@ def _build_entry(name: str) -> tuple[str, dict[str, Any]] | None:
         kwargs = {"api_key": key}
         kwargs.update(_helicone_overrides("gemini"))
         return (settings.gemini_model, kwargs)
+
+    if name == "gemini_flash":
+        key = settings.google_api_key.get_secret_value()
+        if not key:
+            log.debug("Skipping gemini_flash — no AGENTIC_GOOGLE_API_KEY")
+            return None
+        # Direct (no Helicone proxy — same google-ai-studio incompatibility).
+        return (settings.gemini_flash_model, {"api_key": key})
 
     if name == "github":
         key = settings.github_api_key.get_secret_value()

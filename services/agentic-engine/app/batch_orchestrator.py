@@ -24,6 +24,9 @@ from app.schemas import AnalyzeRequest
 
 log = logging.getLogger(__name__)
 
+# Strong refs to in-flight batch workers so the event loop doesn't GC them.
+_BG_TASKS: set[asyncio.Task] = set()
+
 
 @dataclass
 class BatchTickerResult:
@@ -54,7 +57,19 @@ async def run_batch(
     results: list[BatchTickerResult] = []
     sem = asyncio.Semaphore(concurrency)
 
-    async def _one(ticker: str) -> BatchTickerResult:
+    async def _worker(req: AnalyzeRequest, run) -> None:
+        # Hold the semaphore for the ENTIRE blocking job, not just task creation.
+        # run_analysis_job is synchronous (blocking HTTP + LLM calls); offloading
+        # to a thread keeps the event loop free while `await` keeps the semaphore
+        # acquired until the crew finishes. With concurrency=1 this serialises the
+        # crews so we never burst past the LLM provider's per-minute rate limit.
+        async with sem:
+            try:
+                await asyncio.to_thread(run_analysis_job, req, engine, run, runs)
+            except Exception:  # noqa: BLE001 — run_analysis_job records its own errors
+                log.exception("batch worker crashed run_id=%s", run.run_id)
+
+    def _one(ticker: str) -> BatchTickerResult:
         t = ticker.upper().lstrip("$").strip()
         if t not in WHITELIST:
             log.warning("batch: skipping non-whitelisted ticker=%s", t)
@@ -74,20 +89,17 @@ async def run_batch(
         run = runs.start(t)
         run.log("batch_analyze_received", {"ticker": t, "horizon_days": horizon_days})
 
-        async with sem:
-            # run_analysis_job is synchronous (blocking HTTP + LLM calls)
-            # — offload to a thread to avoid blocking the event loop.
-            task = asyncio.create_task(
-                asyncio.to_thread(run_analysis_job, req, engine, run, runs)
-            )
+        # Background task gated by the shared semaphore. Retain a strong ref in
+        # the module-level set so it isn't garbage-collected mid-flight.
+        task = asyncio.create_task(_worker(req, run))
+        _BG_TASKS.add(task)
+        task.add_done_callback(_BG_TASKS.discard)
 
         return BatchTickerResult(ticker=t, run_id=run.run_id, status="started")
 
-    coros = [_one(t) for t in tickers]
-    gathered = await asyncio.gather(*coros, return_exceptions=False)
-    results.extend(gathered)
+    results = [_one(t) for t in tickers]
 
     started = sum(1 for r in results if r.status == "started")
     skipped = len(results) - started
-    log.info("batch launched: started=%d skipped=%d", started, skipped)
+    log.info("batch launched: started=%d skipped=%d concurrency=%d", started, skipped, concurrency)
     return results

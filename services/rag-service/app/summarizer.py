@@ -108,11 +108,14 @@ class LiteLLMSummarizer:
         last_exc: Exception | None = None
         for model, kwargs in chain:
             try:
+                # Gemini 3.x degrades / can infinite-loop below temperature 1.0
+                # (LiteLLM emits an explicit warning); other providers keep 0.2.
+                temperature = 1.0 if "gemini-3" in str(model) else 0.2
                 resp = litellm.completion(
                     model=model,
                     messages=msgs,
                     max_tokens=700,
-                    temperature=0.2,
+                    temperature=temperature,
                     **kwargs,
                 )
                 return resp.choices[0].message.content.strip()

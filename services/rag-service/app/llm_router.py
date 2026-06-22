@@ -20,7 +20,10 @@ log = logging.getLogger(__name__)
 _HELICONE_PROXIES: dict[str, str] = {
     "groq":   "https://groq.helicone.ai/openai/v1",
     "openai": "https://oai.helicone.ai/v1",
-    "gemini": "https://gateway.helicone.ai/api/providers/google-ai-studio",
+    # gemini deliberately NOT proxied: Helicone's Google-AI-Studio gateway is
+    # incompatible with litellm's native `gemini/` provider — it raises
+    # "Missing target base url". Gemini calls go direct to Google (mirrors the
+    # agentic-engine router). Re-adding this line breaks every Gemini RAG query.
 }
 
 
@@ -77,6 +80,14 @@ def _build_entry(name: str) -> tuple[str, dict[str, Any]] | None:
         kwargs = {"api_key": key}
         kwargs.update(_helicone_overrides("gemini"))
         return (settings.gemini_model, kwargs)
+
+    if name == "gemini_flash":
+        key = settings.google_api_key.get_secret_value()
+        if not key:
+            log.debug("Skipping gemini_flash — no RAG_GOOGLE_API_KEY")
+            return None
+        # Direct (no Helicone proxy — google-ai-studio gateway incompatibility).
+        return (settings.gemini_flash_model, {"api_key": key})
 
     if name == "github":
         key = settings.github_api_key.get_secret_value()

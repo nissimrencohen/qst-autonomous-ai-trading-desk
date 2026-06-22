@@ -159,9 +159,10 @@ async def trigger_briefing(request: Request, _auth: AuthDep = None) -> dict:
     engine = request.app.state.engine
     runs   = request.app.state.runs
     store  = request.app.state.briefing_store
+    report_store = getattr(request.app.state, "report_store", None)
 
     from app.daily_briefing import run_daily_briefing
-    task = asyncio.create_task(run_daily_briefing(engine, runs, store))
+    task = asyncio.create_task(run_daily_briefing(engine, runs, store, report_store=report_store))
     bg: set = request.app.state.bg_tasks
     bg.add(task)
     task.add_done_callback(bg.discard)
