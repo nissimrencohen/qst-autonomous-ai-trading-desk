@@ -16,12 +16,13 @@ generate trading probability reports, built as an AI Engineering final project.
 Full stack is 11 services (the 4 core microservices + dashboard + n8n + Langfuse,
 Phoenix, Jaeger/OTel observability), wired via Docker Compose profiles.
 
-Full design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+Full end-to-end walkthrough: [docs/SYSTEM_OVERVIEW.md](docs/SYSTEM_OVERVIEW.md)
 
 ## Documentation
 
 | File | Purpose |
 |---|---|
+| [docs/SYSTEM_OVERVIEW.md](docs/SYSTEM_OVERVIEW.md) | **Start here** — full end-to-end system reference: architecture, all 4 layers, MCP, data flow, observability, security, glossary |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, endpoints, data flow, Docker conventions |
 | [docs/CHANGELOG.md](docs/CHANGELOG.md) | Chronological log of features, refactors, fixes |
 | [docs/TODO_AND_METRICS.md](docs/TODO_AND_METRICS.md) | Requirement checklist & project metrics |
