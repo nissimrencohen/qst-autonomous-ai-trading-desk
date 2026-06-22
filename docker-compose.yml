@@ -262,6 +262,29 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── Orchestration layer: n8n (opt-in) ───────────────────────────────────────
+  # Workflow automation that drives/monitors the desk. Joined to the same
+  # `trading-desk` network (via *defaults) so workflows reach the backend by
+  # service name: http://agentic-engine:8003, http://rag-service:8001,
+  # postgres:5432, etc. Workflows + the n8n encryption key live in the n8n_data
+  # volume (SQLite) and are migrated 1:1 with the rest of the Golden State.
+  # Image is untagged (latest) to match local; the preserved DB auto-migrates
+  # forward, so an equal-or-newer image is safe (an older pin would refuse it).
+  # Start with: docker compose --profile n8n up -d   (UI at http://localhost:5678)
+  n8n:
+    <<: *defaults
+    image: docker.n8n.io/n8nio/n8n
+    profiles: [n8n]
+    ports:
+      - "5678:5678"                # n8n UI / API
+    environment:
+      # Browser reaches n8n through the SSH tunnel as http://localhost:5678;
+      # disabling the secure-cookie requirement keeps that path working over HTTP.
+      N8N_SECURE_COOKIE: "false"
+      GENERIC_TIMEZONE: ${TZ:-UTC}
+    volumes:
+      - n8n_data:/home/node/.n8n
+
 networks:
   trading-desk:
     driver: bridge
@@ -272,3 +295,4 @@ volumes:
   langfuse_db:
   phoenix_data:
   pg_run_store:
+  n8n_data:

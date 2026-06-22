@@ -129,14 +129,22 @@ TUNNEL_PORTS = [
 ]
 
 # Docker NAMED VOLUMES that hold the frozen Golden State. These are the real
-# data - NOT ./data. Extend if you also want to carry observability history.
+# data - NOT ./data. Each entry is (LOCAL_volume_name, REMOTE_volume_name).
+# They are identical for the compose-managed volumes, but DIFFER for n8n: the
+# local n8n is a standalone `docker run` on the bare `n8n_data` volume, whereas
+# compose (name: trading-desk) creates/expects `trading-desk_n8n_data`. So we
+# export the local volume and restore it under the compose-prefixed name.
 GOLDEN_VOLUMES = [
-    f"{COMPOSE_PROJECT}_agent_memory",   # synthesis_reports.db, ingestion.db, briefing, users.db
-    f"{COMPOSE_PROJECT}_chroma_data",    # RAG vector store
-    # f"{COMPOSE_PROJECT}_langfuse_db",  # (optional) observability history
-    # f"{COMPOSE_PROJECT}_n8n_data",     # (optional) workflow definitions
-    # f"{COMPOSE_PROJECT}_phoenix_data", # (optional) tracing history
+    (f"{COMPOSE_PROJECT}_agent_memory", f"{COMPOSE_PROJECT}_agent_memory"),  # reports/ingestion/briefing/users
+    (f"{COMPOSE_PROJECT}_chroma_data",  f"{COMPOSE_PROJECT}_chroma_data"),   # RAG vector store
+    ("n8n_data",                        f"{COMPOSE_PROJECT}_n8n_data"),       # n8n workflows + encryption key
+    # (f"{COMPOSE_PROJECT}_langfuse_db",  f"{COMPOSE_PROJECT}_langfuse_db"),  # (optional) trace history
+    # (f"{COMPOSE_PROJECT}_phoenix_data", f"{COMPOSE_PROJECT}_phoenix_data"), # (optional) eval history
 ]
+
+# Compose profiles to activate on the remote `up` so the FULL stack starts:
+# observability/orchestration tools that are otherwise opt-in.
+COMPOSE_PROFILES = "--profile langfuse --profile phoenix --profile observability --profile n8n"
 
 # Source-sync excludes (kept out of the project tarball - never the data!)
 SOURCE_EXCLUDES = [
@@ -210,21 +218,24 @@ def export_golden_volumes() -> list[Path]:
     existing = subprocess.run(["docker", "volume", "ls", "--format", "{{.Name}}"],
                               capture_output=True, text=True).stdout.split()
     tarballs: list[Path] = []
-    for vol in GOLDEN_VOLUMES:
-        if vol not in existing:
-            warn(f"volume {vol} not found locally - skipping (is the stack up?)")
+    for local_vol, remote_vol in GOLDEN_VOLUMES:
+        if local_vol not in existing:
+            warn(f"volume {local_vol} not found locally - skipping (is the stack up?)")
             continue
-        out = LOCAL_STAGE / f"{vol}.tar.gz"
-        log(f"exporting volume {vol} -> {out.name}")
+        # Name the tarball after the REMOTE volume so the restore step recreates
+        # it under the name compose expects (matters when local != remote, e.g. n8n).
+        out = LOCAL_STAGE / f"{remote_vol}.tar.gz"
+        note = "" if local_vol == remote_vol else f"  (-> remote {remote_vol})"
+        log(f"exporting volume {local_vol} -> {out.name}{note}")
         # `tar ... -C /from .` streamed to stdout; we capture it into the file.
         with open(out, "wb") as fh:
             proc = subprocess.run(
-                ["docker", "run", "--rm", "-v", f"{vol}:/from:ro", "alpine",
+                ["docker", "run", "--rm", "-v", f"{local_vol}:/from:ro", "alpine",
                  "tar", "czf", "-", "-C", "/from", "."],
                 stdout=fh, stderr=subprocess.PIPE,
             )
         if proc.returncode != 0:
-            die(f"failed to export {vol}: {proc.stderr.decode()[:300]}")
+            die(f"failed to export {local_vol}: {proc.stderr.decode()[:300]}")
         tarballs.append(out)
     if not tarballs:
         die("No Golden-State volumes exported - refusing to deploy an empty desk.")
@@ -523,13 +534,15 @@ def remote_provision_and_run(cli: paramiko.SSHClient, vol_tarballs: list[Path]) 
             sudo=True,
         )
 
-    # 3e. build + start (frozen: loops stay OFF via the hardened .env)
-    log("docker compose up -d --build  (this builds several images; ~15-30 min)...")
-    run_remote(cli, f"cd {REMOTE_DIR} && docker compose up -d --build", sudo=True)
+    # 3e. build + start the FULL stack (all profiles: langfuse/phoenix/
+    #     observability/n8n). Frozen: synthesis loop + ingestion stay OFF via the
+    #     hardened .env; the profiles only add observability + orchestration UIs.
+    log("docker compose up -d --build with all profiles (~15-30 min build)...")
+    run_remote(cli, f"cd {REMOTE_DIR} && docker compose {COMPOSE_PROFILES} up -d --build", sudo=True)
 
-    # 3f. health check
+    # 3f. health check (include profiles so `ps` lists every service)
     log("verifying container health...")
-    run_remote(cli, f"cd {REMOTE_DIR} && docker compose ps", sudo=True)
+    run_remote(cli, f"cd {REMOTE_DIR} && docker compose {COMPOSE_PROFILES} ps", sudo=True)
     # give services a moment, then probe the agentic API + dashboard on the host
     run_remote(cli, "sleep 20", sudo=True, check=False)
     run_remote(cli,
