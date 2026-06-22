@@ -138,8 +138,10 @@ GOLDEN_VOLUMES = [
     (f"{COMPOSE_PROJECT}_agent_memory", f"{COMPOSE_PROJECT}_agent_memory"),  # reports/ingestion/briefing/users
     (f"{COMPOSE_PROJECT}_chroma_data",  f"{COMPOSE_PROJECT}_chroma_data"),   # RAG vector store
     ("n8n_data",                        f"{COMPOSE_PROJECT}_n8n_data"),       # n8n workflows + encryption key
-    # (f"{COMPOSE_PROJECT}_langfuse_db",  f"{COMPOSE_PROJECT}_langfuse_db"),  # (optional) trace history
-    # (f"{COMPOSE_PROJECT}_phoenix_data", f"{COMPOSE_PROJECT}_phoenix_data"), # (optional) eval history
+    (f"{COMPOSE_PROJECT}_langfuse_db",  f"{COMPOSE_PROJECT}_langfuse_db"),    # Langfuse trace history (Postgres)
+    (f"{COMPOSE_PROJECT}_phoenix_data", f"{COMPOSE_PROJECT}_phoenix_data"),   # Phoenix eval/trace history
+    # pg_run_store is intentionally NOT migrated: RUN_STORE_BACKEND=memory, so
+    # the main Postgres holds no app data (a fresh one on EC2 is equivalent).
 ]
 
 # Compose profiles to activate on the remote `up` so the FULL stack starts:
