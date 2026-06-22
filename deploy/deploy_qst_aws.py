@@ -163,9 +163,13 @@ SOURCE_EXCLUDES = [
 ENV_OVERRIDES = {
     "AGENTIC_SYNTHESIS_LOOP_ENABLED": "false",   # background loop stays OFF
     "INGESTION_ENABLED":              "false",   # 1-min ingestion stays OFF
-    "LLM_PROVIDER_CHAIN":             "gemini,gemini_flash,github,openai",
-    "RAG_LLM_PROVIDER_CHAIN":         "gemini,gemini_flash,github,openai",
-    "GEMINI_MODEL":                   "gemini/gemini-3.5-flash",
+    # 2026-06-22: gemini-3.5-flash returned consistent 503 under the parallel
+    # crew burst; primary is now GA-stable gemini-2.5-flash, and groq
+    # (Llama-3.3-70b, free, accepts the tool schemas) sits in the chain so a
+    # Gemini overload falls to a working provider instead of the dead OpenAI tiers.
+    "LLM_PROVIDER_CHAIN":             "gemini,gemini_flash,groq,github,openai",
+    "RAG_LLM_PROVIDER_CHAIN":         "gemini,gemini_flash,groq,github,openai",
+    "GEMINI_MODEL":                   "gemini/gemini-2.5-flash",
 }
 
 LOCAL_STAGE = PROJECT_ROOT / "deploy" / ".stage"   # scratch dir for tarballs
@@ -616,7 +620,7 @@ def print_access(ip: str, pem: Path, open_http: bool) -> None:
         print(f"    http://localhost:{p:<5}  ->  {label}")
     print("\n  Frozen-state reminder: synthesis loop + ingestion are OFF. The Live")
     print("  Desk serves the static Golden-Run data; Gemini fires only when you")
-    print("  hit the Analysis tab (primary: gemini-3.5-flash).")
+    print("  hit the Analysis tab (primary: gemini-2.5-flash, groq fallback).")
     print(f"\n  Teardown when done:  python {Path(__file__).name} --teardown\n")
 
 

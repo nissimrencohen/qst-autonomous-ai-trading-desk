@@ -206,17 +206,47 @@ FastAPI chart-condition scorer. Three backends (`VISION_MODEL_BACKEND`):
 
 ### 6.3 Agentic Engine (`:8003`)
 
-The heart of the system — FastAPI + **CrewAI**. The swarm:
+The heart of the system — FastAPI + **CrewAI**. The swarm operates in parallel to gather specialized insights before synthesis:
 
-| Agent | Role |
-|-------|------|
-| Technical Analyst | Reads MCP technical data + chart vision |
-| Fundamental Analyst | MCP fundamentals + RAG + web search |
-| Volatility Analyst | VIX term structure, contango/backwardation (leads VIXY/SVXY) |
-| Options Flow Analyst | Put/call & IV-skew from public chains |
-| Space Economy Analyst | Launch cadence + sector read-through |
-| News & Geopolitical Analyst | Web/news sentiment |
-| **Quant Execution Manager** | Synthesises all of the above into the final JSON report |
+#### Swarm Architecture Diagram
+
+```mermaid
+graph TD
+  subgraph Agentic Engine
+    direction TB
+    ORCH[Async Orchestrator] --> MANAGER
+    
+    subgraph Analysts [Parallel Specialists]
+      TA[Technical Analyst<br>MCP + Chart Vision]
+      FA[Fundamental Analyst<br>RAG + MCP + Web]
+      VA[Volatility Analyst<br>VIX Term Structure]
+      OA[Options Flow Analyst<br>Put/Call + IV Skew]
+      SA[Space Economy Analyst<br>Launch Cadence]
+      NA[News & Geo Analyst<br>Macro/Sentiment]
+    end
+    
+    Analysts -->|Theses & Insights| MANAGER[Quant Execution Manager<br>Synthesizes Probability Report]
+    
+    %% Data Sources
+    MCP[MCP Tools] -.-> TA
+    MCP -.-> FA
+    WEB[Web Tools] -.-> FA
+    WEB -.-> SA
+    WEB -.-> NA
+  end
+```
+
+#### The Crew Agents
+
+| Agent | Role & Operations |
+|-------|-------------------|
+| **Technical Analyst** | Reads actual indicators (RSI, MACD, Bollinger) from MCP technical data and live quotes. Factors in macro context and chart vision to produce a technical thesis without inventing patterns. |
+| **Fundamental Analyst** | Distills drivers from RAG context, live valuations (EPS, P/E), and competitive comparisons. Correlates fundamental strength with the current macro/fear environment. |
+| **Volatility Analyst** | Reads the 9D/30D/3M VIX term structure to assess market regime (contango/backwardation). Acts as the lead voice for volatility ETPs (VIXY, SVXY). |
+| **Options Flow Analyst** | Scans public option chains for put/call ratios, IV skew, and approximate gamma to determine positioning bias and unusual activity. |
+| **Space Economy Analyst** | Specifically tracks the space sector (SPCX), monitoring launch schedules, Starlink growth, and government contracts via web search. |
+| **News & Geopolitical Analyst** | Surfaces recent macro news, rate decisions, and geopolitical events, directly linking them to the specific ticker's performance. |
+| **Quant Execution Manager** | Head of the desk. Runs sequentially *after* the analysts. Synthesizes their theses, sets directional probabilities (summing to 1.0), defines the risk level, and generates a paper-only execution plan. |
 
 Background services: 1-minute **ingestion engine**, **continuous synthesis
 loop**, **daily briefing scheduler**, social pipeline, and the **MCP server**.

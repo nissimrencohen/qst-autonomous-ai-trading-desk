@@ -5,11 +5,16 @@ generate trading probability reports, built as an AI Engineering final project.
 
 ## Architecture (4 layers)
 
-1. **Frontend** — React trading dashboard + Streamlit admin panel
-2. **Orchestrator** — n8n (webhook gateway, validation, parallel routing)
+1. **Frontend** — React trading dashboard (`:3002`)
+2. **Orchestrator** — n8n (webhook gateway: validation → guardrails → parallel RAG/Vision → synthesis → output-rail). Concurrent batch runs (up to 10 tickers) are driven by the Agentic Engine itself.
 3. **Microservices** — 4 × Python FastAPI on AWS EC2 + Docker:
-   RAG (ChromaDB), Vision Analyser (PyTorch), Agentic Engine (CrewAI), Guardrails (NeMo)
-4. **LLM Layer** — AWS Bedrock (primary) + local Llama.cpp/Ollama
+   RAG (ChromaDB), Vision Analyser (multimodal LLM), Agentic Engine (CrewAI, 7 agents), Guardrails (deterministic regex + NeMo)
+4. **LLM Layer** — LiteLLM cascade with automatic failover:
+   `gemini-2.5-flash → gemini-3.5-flash → groq/llama-3.3-70b → GitHub/OpenAI gpt-4o`
+   Routed through Helicone for caching + cost tracking.
+
+Full stack is 11 services (the 4 core microservices + dashboard + n8n + Langfuse,
+Phoenix, Jaeger/OTel observability), wired via Docker Compose profiles.
 
 Full design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
@@ -36,18 +41,26 @@ tests/           cross-service integration tests
 ## Quick start
 
 ```bash
-docker compose up -d --build        # 4 services + dashboard
+# core 4 services + dashboard:
+docker compose up -d --build
+# full stack incl. n8n + observability:
+docker compose --profile n8n --profile langfuse --profile phoenix --profile observability up -d --build
 # import orchestration/n8n/workflows/analyze-request.json into n8n (:5678), activate
-python scripts/seed_rag.py          # seed the corpus (NVDA/ESLT/NXSN/TOND/CUE)
-# dashboard: http://localhost:3002  (manual ingestion now lives in the INGEST tab, admin-only)
+python scripts/seed_rag.py          # seed the corpus
+# dashboard: http://localhost:3002  (manual ingestion lives in the INGEST tab, admin-only)
 ```
+
+Cloud deploy (AWS EC2, boto3 + paramiko IaC, migrates the named data volumes):
+`python deploy/deploy_qst_aws.py`
 
 Offline verification without Docker: `python scripts/e2e_local.py`
 (boots all four services on dev backends and replays the full chain).
 
 ## Status
 
-**All 7 steps complete (v1.0.0)** — system wired end-to-end and verified:
-E2E chain 12/12 assertions at 1.5s latency; 46 unit/integration tests passing;
-all 5 prompt families logged (25 iterations, pass rates ≥ 9/10).
-Remaining: EC2 deployment. See [docs/TODO_AND_METRICS.md](docs/TODO_AND_METRICS.md).
+**Deployed on AWS EC2** — full 11-service stack live via Docker Compose profiles
+(boto3/paramiko IaC, 50 GB gp3, hardened security group, internal tools reached
+over an SSH tunnel). The LLM cascade fails over Gemini → Groq → GPT-4o on rate
+limits/overload; multimodal chart vision runs on gemini-2.5-flash; output rail
+grounds report metrics against the MCP server and flags hallucinations.
+See [docs/TODO_AND_METRICS.md](docs/TODO_AND_METRICS.md) and [docs/CHANGELOG.md](docs/CHANGELOG.md).
