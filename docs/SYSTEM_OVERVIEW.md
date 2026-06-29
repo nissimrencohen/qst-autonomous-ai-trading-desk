@@ -18,13 +18,14 @@
 6. [Layer 3 — Microservices](#6-layer-3--microservices)
 7. [Layer 4 — LLM Router](#7-layer-4--llm-router)
 8. [MCP — Model Context Protocol](#8-mcp--model-context-protocol)
-9. [End-to-End Data Flow](#9-end-to-end-data-flow)
-10. [Authentication & RBAC](#10-authentication--rbac)
-11. [Infrastructure & DevOps](#11-infrastructure--devops)
-12. [Observability Stack](#12-observability-stack)
-13. [Security & Execution Gatekeeper](#13-security--execution-gatekeeper)
-14. [Use Cases](#14-use-cases)
-15. [Glossary](#15-glossary)
+9. [EVAL Research Lab](#9-eval-research-lab)
+10. [End-to-End Data Flow](#10-end-to-end-data-flow)
+11. [Authentication & RBAC](#11-authentication--rbac)
+12. [Infrastructure & DevOps](#12-infrastructure--devops)
+13. [Observability Stack](#13-observability-stack)
+14. [Security & Execution Gatekeeper](#14-security--execution-gatekeeper)
+15. [Use Cases](#15-use-cases)
+16. [Glossary](#16-glossary)
 
 ---
 
@@ -39,7 +40,7 @@ Manager synthesises a single JSON report containing directional probabilities,
 a technical view, a fundamental view, a risk assessment, an (optional) execution
 plan, and a forecast cone.
 
-The desk operates in three complementary modes, each with a clearly labelled
+The desk operates in four complementary modes, each with a clearly labelled
 data-provenance chip in the UI:
 
 | Mode | Purpose | Pipeline behind it | Provenance chip |
@@ -47,6 +48,7 @@ data-provenance chip in the UI:
 | **Live Desk** | Always-on monitoring of all 10 tickers | Continuous synthesis loop reading the 1-min ingestion cache (cheap, budget-safe) | `CONTINUOUS · CACHED` |
 | **Analysis** | On-demand single-ticker deep-dive | Live engine: MCP market data + chart vision + full 7-agent crew | `LIVE · MCP + VISION` |
 | **Briefing** | Scheduled pre-market summary | Offline crew + lognormal GBM move-probabilities + crew bias | `MORNING · GBM MODEL` |
+| **EVAL Lab** | Benchmark research lab | Configurable swarm size × model matrix with eval hooks (schema, faithfulness, relevancy) | `EVAL · BENCHMARK` |
 
 ### Active Watchlist (V2.0)
 
@@ -77,8 +79,8 @@ QST is a four-layer, container-native system:
 ┌──────────────────────────────────────────────────────────────────┐
 │  LAYER 1 — FRONTEND                                                 │
 │  React Trading Dashboard (Vite + nginx, :3002)                     │
-│  LIVE DESK · ANALYSIS · BRIEFING · INGEST(admin) · ASSISTANT       │
-│  RBAC login gate · QST terminal aesthetic                          │
+│  LIVE DESK · ANALYSIS · BRIEFING · EVAL LAB · INGEST(admin) ·     │
+│  ASSISTANT · RBAC login gate · QST terminal aesthetic              │
 └───────────────┬────────────────────────────────────────────────────┘
                 │ REST / SSE
 ┌───────────────▼────────────────────────────────────────────────────┐
@@ -92,11 +94,13 @@ QST is a four-layer, container-native system:
 │  RAG (:8001) · Vision (:8002) · Agentic Engine (:8003) ·           │
 │  Guardrails (:8004)                                                │
 │  + MCP market-data tool server (app/mcp_server.py)                 │
+│  + EVAL hooks (schema + DeepEval LLM-judge) → Langfuse / Phoenix  │
 └───────────────┬────────────────────────────────────────────────────┘
                 │ LLM Router (budget-first fallback)
 ┌───────────────▼────────────────────────────────────────────────────┐
 │  LAYER 4 — LLM PROVIDERS                                            │
 │  Groq → OpenAI → Gemini → Ollama   (Bedrock when ENV=aws)          │
+│  + EVAL judge model (pinned or cascade)                            │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -112,6 +116,7 @@ Jaeger/OTel).
 graph TD
   subgraph Frontend[":3002 React Dashboard"]
     UI[QST Dashboard] --> AUTH[Auth Context / RBAC]
+    EVALUI[EVAL Lab Dashboard]
   end
 
   subgraph Engine[":8003 Agentic Engine"]
@@ -120,13 +125,26 @@ graph TD
     CREW --> WEB[Web search tools]
     ORCH --> GATE[Execution Gatekeeper]
     ORCH --> FC[Forecast cone]
+    ORCH --> EVALHOOKS["Eval Hooks (async)"]
     LOOP[Continuous Synthesis Loop] --> CACHE[(ingestion.db)]
     BRIEF[Daily Briefing] --> CACHE
     USERS[(users.db RBAC)]
+    EVALAPI["POST /eval/synthesize"] --> ORCH
+    EVALSUMMARY["GET /eval/summary"] --> AGGR[Aggregation Pipeline]
+  end
+
+  subgraph EvalLayer["EVAL Pipeline"]
+    EVALHOOKS -->|schema_compliance| SCHEMA[Deterministic checks]
+    EVALHOOKS -->|faithfulness + relevancy| DEEPEVAL[DeepEval LLM-as-Judge]
+    DEEPEVAL --> JUDGE[Judge LLM via LiteLLM]
+    EVALHOOKS -->|scores| LF[Langfuse Traces]
+    EVALHOOKS -->|scores| PHX[Phoenix Annotations]
   end
 
   UI -->|/auth/token| USERS
   UI -->|/analyze| ORCH
+  EVALUI -->|/eval/synthesize| EVALAPI
+  EVALUI -->|/eval/summary| EVALSUMMARY
   ORCH -->|/query| RAG[":8001 RAG · ChromaDB"]
   ORCH -->|/analyse chart| VIS[":8002 Vision · LLM"]
   ORCH -->|/check| GR[":8004 Guardrails"]
@@ -149,6 +167,9 @@ graph TD
   - **Analysis** — on-demand deep-dive: order ticket + report + live agent log.
     Supports **chart upload** → LLM vision.
   - **Briefing** — scheduled morning briefing with GBM move-probabilities.
+  - **EVAL Lab** — benchmark research dashboard (`EvalDashboard.tsx`). Fetches
+    `GET /eval/summary` and renders bar charts (faithfulness × swarm × model),
+    cost comparison, quality scatter, and auto-generated best-config conclusions.
   - **Ingest** *(admin only)* — pipeline status + manual document upload + chart
     quick-score.
   - **Assistant** — global chat sidebar (SSE streaming, `/chat`).
@@ -210,13 +231,25 @@ The heart of the system — FastAPI + **CrewAI**. The swarm operates in parallel
 
 #### Swarm Architecture Diagram
 
+The swarm supports **three configurable sizes** (controlled by `SwarmSize` in
+EVAL runs; production always uses FULL):
+
+| SwarmSize | Agents | Use case |
+|-----------|--------|----------|
+| **SOLO** | Quant Manager only (with full tool access) | Single-agent baseline benchmark |
+| **TRIAD** | Technical Analyst + Volatility Analyst + Quant Manager | Minimal viable desk (VIX-focused) |
+| **FULL** | All 7 agents (production default) | Complete multi-specialist desk |
+
 ```mermaid
 graph TD
   subgraph Agentic Engine
     direction TB
-    ORCH[Async Orchestrator] --> MANAGER
+    ORCH[Async Orchestrator] --> SWARM_CFG{SwarmSize?}
+    SWARM_CFG -->|SOLO| MANAGER_SOLO[Quant Manager Only<br>all tools attached]
+    SWARM_CFG -->|TRIAD| TRIAD_CREW[TA + VA + Manager]
+    SWARM_CFG -->|FULL| FULL_CREW[Full 7-Agent Desk]
     
-    subgraph Analysts [Parallel Specialists]
+    subgraph Analysts ["Parallel Specialists (FULL)"]
       TA[Technical Analyst<br>MCP + Chart Vision]
       FA[Fundamental Analyst<br>RAG + MCP + Web]
       VA[Volatility Analyst<br>VIX Term Structure]
@@ -225,6 +258,7 @@ graph TD
       NA[News & Geo Analyst<br>Macro/Sentiment]
     end
     
+    FULL_CREW --> Analysts
     Analysts -->|Theses & Insights| MANAGER[Quant Execution Manager<br>Synthesizes Probability Report]
     
     %% Data Sources
@@ -233,6 +267,8 @@ graph TD
     WEB[Web Tools] -.-> FA
     WEB -.-> SA
     WEB -.-> NA
+    
+    MANAGER --> EVAL_HOOK["Eval Hooks (async, fire-and-forget)"]
   end
 ```
 
@@ -302,7 +338,121 @@ compatibility with next-gen agentic clients (Claude Desktop, IDE agents, etc.).
 
 ---
 
-## 9. End-to-End Data Flow
+## 9. EVAL Research Lab
+
+The EVAL Research Lab is an integrated benchmark and quality-measurement system
+for systematically evaluating the impact of **swarm size** and **model choice**
+on synthesis quality, cost, and latency. It spans four phases:
+
+### Phase 1 — Eval Hooks (`app/eval_hooks.py`)
+
+Three metrics computed **asynchronously** after every synthesis run (production
+and EVAL), in a background `ThreadPoolExecutor(max_workers=2)` so the HTTP 200
+response is never delayed:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `schema_compliance` | Deterministic | Probs sum to 1.0 (±0.01), confidence ∈ [0,1], risk_level ∈ {low,medium,high}, caveats non-empty, ticker non-empty. Score: 0.0 or 1.0. |
+| `faithfulness` | LLM-as-judge (DeepEval) | Does the output faithfully reflect the RAG retrieval context? Range: 0.0–1.0. |
+| `answer_relevancy` | LLM-as-judge (DeepEval) | Is the output relevant to the analyst question? Range: 0.0–1.0. |
+
+Results are posted to **Langfuse** (as Score objects linked to the trace) and
+**Arize Phoenix** (via `/v1/trace_annotations`).
+
+**Backend selection** (`AGENTIC_EVAL_BACKEND`):
+
+| Value | Behaviour |
+|-------|-----------|
+| `schema` (default) | Deterministic schema_compliance only — zero LLM calls |
+| `deepeval` | All three metrics — requires `deepeval≥1.4` + `litellm`; ~2–3 extra LLM calls per synthesis |
+| `none` | Disable all evaluation hooks entirely |
+
+**Judge model** (`AGENTIC_EVAL_JUDGE_MODEL`): when set (e.g. `gpt-4o`), that
+model is used exclusively for eval — no LLM router involvement. Otherwise the
+first available provider in `llm_provider_chain` is used.
+
+### Phase 2 — Benchmark Runner (`scripts/run_eval_matrix.py`)
+
+Autonomous test orchestrator that iterates a **Golden Dataset** of 5
+VIX/options/derivatives-focused prompts against approved watchlist tickers
+across a full experiment matrix:
+
+```
+Axis 1: SwarmSize  ∈  {SOLO, TRIAD, FULL}
+Axis 2: Model      ∈  {gemini-2.5-flash, llama-3.1-8b, gpt-4o}
+Axis 3: Prompts    ∈  5 golden prompts (VIXY, SVXY, SPCX)
+
+Total cells: 3 × 3 × 5 = 45 runs (strictly serial)
+```
+
+Each cell POSTs to `POST /eval/synthesize` with an `EvalConfig` specifying the
+experiment name, run label, swarm size, and pinned target model. Results
+(run_id, HTTP status, latency, probabilities) are saved as JSONL to
+`./data/eval_results_<timestamp>.jsonl`.
+
+Provider fallback: each cell tries its primary provider first, then falls through
+the full provider pool (openai → groq → github → gemini_flash → gemini).
+
+### Phase 3 — Data Aggregation (`scripts/aggregate_eval_data.py`)
+
+Fuses three data sources into a single dashboard-ready JSON payload:
+
+1. **Local JSONL** — Phase 2 output (latency, status, signals)
+2. **Langfuse API** — per-trace cost (USD), token usage, eval scores
+3. **Phoenix API** — per-run_id evaluation rows (cross-check)
+
+Join strategy: JSONL → Langfuse by `run_label` tag; JSONL → Phoenix by `run_id`.
+
+Output (`data/dashboard_ready_data.json`):
+- `by_config[]` — bar charts (faithfulness by swarm × model)
+- `by_model[]` — bar charts (cost by model)
+- `by_swarm[]` — bar charts (quality by swarm)
+- `scatter_data[]` — cost vs quality scatter plot
+- `conclusions` — auto-generated best-config recommendations
+
+### Phase 4 — EVAL Dashboard (`frontend/trading-dashboard/src/components/EvalDashboard.tsx`)
+
+React workspace accessible via the **EVAL LAB** tab in the dashboard. Fetches
+`GET /eval/summary` and renders interactive charts and conclusions.
+
+### Schemas (`app/eval_schemas.py`)
+
+| Schema | Purpose |
+|--------|---------|
+| `SwarmSize` | Enum: `SOLO` / `TRIAD` / `FULL` — controls agent count |
+| `EvalConfig` | Per-request experiment configuration: `experiment_name`, `run_label`, `swarm_size`, `target_model`, `skip_fallback` |
+| `EvalSynthesizeRequest` | Superset of `SynthesizeRequest` + `eval_config`; accepted by `POST /eval/synthesize` |
+
+### API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/eval/synthesize` | Run the analyst crew with a dynamic `EvalConfig`; returns a `ProbabilityReport`. Same guardrails/gatekeeper as production so scores are comparable. |
+| `GET` | `/eval/summary` | Aggregate benchmark results (JSONL + Langfuse + Phoenix) into a dashboard-ready JSON payload. Accepts optional `?jsonl_path=` to specify a specific results file. |
+
+### EVAL Data Flow Diagram
+
+```mermaid
+graph LR
+  RUNNER["run_eval_matrix.py<br>(Phase 2)"] -->|POST /eval/synthesize| ENGINE[:8003 Engine]
+  ENGINE --> CREW["CrewAI Swarm<br>(SOLO / TRIAD / FULL)"]
+  CREW --> REPORT[ProbabilityReport]
+  REPORT --> HOOKS["eval_hooks<br>(async, fire-and-forget)"]
+  HOOKS --> SCHEMA_CHK[schema_compliance]
+  HOOKS -->|deepeval backend| JUDGE[DeepEval LLM Judge]
+  JUDGE --> FAITH[faithfulness]
+  JUDGE --> RELEV[answer_relevancy]
+  HOOKS -->|scores| LF[Langfuse]
+  HOOKS -->|scores| PHX[Phoenix]
+  RUNNER -->|results| JSONL["data/eval_results.jsonl"]
+  JSONL --> AGG["aggregate_eval_data.py<br>(Phase 3)"]
+  LF --> AGG
+  PHX --> AGG
+  AGG --> JSON["dashboard_ready_data.json"]
+  JSON -->|GET /eval/summary| DASHBOARD["EVAL Lab Dashboard<br>(Phase 4)"]
+```
+
+## 10. End-to-End Data Flow
 
 **Happy path — asynchronous Analysis with a chart:**
 
@@ -317,7 +467,10 @@ compatibility with next-gen agentic clients (Claude Desktop, IDE agents, etc.).
    single `ProbabilityReport`.
 5. **Output rail** + **execution gatekeeper** (whitelist + paper-broker routing)
    → **forecast** cone attached → vision result attached → report persisted.
-6. The dashboard renders the report: probabilities, Technical, **Chart Vision**,
+6. **Eval hooks** fire asynchronously (schema_compliance always; faithfulness +
+   answer_relevancy when `AGENTIC_EVAL_BACKEND=deepeval`). Scores posted to
+   Langfuse traces and Phoenix annotations.
+7. The dashboard renders the report: probabilities, Technical, **Chart Vision**,
    Fundamental, Risk, Execution plan, Forecast.
 
 Typical latency: ~30–60 s for a full live crew run; the continuous loop produces
@@ -325,7 +478,7 @@ a fresh cached report per ticker every cycle.
 
 ---
 
-## 10. Authentication & RBAC
+## 11. Authentication & RBAC
 
 Real, **DB-backed** role-based access control (`app/users.py`, `app/auth.py`):
 
@@ -344,7 +497,7 @@ Real, **DB-backed** role-based access control (`app/users.py`, `app/auth.py`):
 
 ---
 
-## 11. Infrastructure & DevOps
+## 12. Infrastructure & DevOps
 
 ### Docker Compose
 
@@ -379,21 +532,41 @@ Rebuild after code changes:
 
 ---
 
-## 12. Observability Stack (opt-in)
+## 13. Observability Stack (opt-in)
 
 | Tool | Profile | UI | Purpose |
 |------|---------|----|---------|
-| Langfuse | `langfuse` | :3003 | Prompt/LLM tracing |
-| Phoenix | `phoenix` | :6006 | Evaluation (faithfulness, relevancy) |
-| Jaeger/OTel | `observability` | :16686 | Distributed traces (OTLP :4318) |
+| Langfuse | `langfuse` | :3003 | Prompt/LLM tracing + EVAL scores (Score objects per synthesis trace) |
+| Phoenix | `phoenix` | :6006 | Evaluation UI (faithfulness, relevancy, schema_compliance via `/v1/trace_annotations`) |
+| Jaeger/OTel | `observability` | :16686 | Distributed traces (OTLP :4318); EVAL runs carry `eval.*` span attributes |
 | Helicone | env | cloud | LLM caching + cost analytics |
 
-Evaluation hooks (`eval_backend`): `schema` (deterministic, default),
+### Evaluation Pipeline Integration
+
+Eval hooks (`AGENTIC_EVAL_BACKEND`): `schema` (deterministic, default),
 `deepeval` (LLM-as-judge), or `none`.
+
+- **Langfuse**: eval scores are attached as `Score` objects to the synthesis
+  `trace_id`. The Phase 3 aggregation pipeline reads these via the Langfuse
+  REST API (`/api/public/scores`) to compute per-config averages.
+- **Phoenix**: eval scores are POSTed to `/v1/trace_annotations` with the
+  OpenTelemetry trace ID and the server `run_id` as the annotation identifier.
+  The aggregation pipeline reads them back via
+  `/v1/projects/default/trace_annotations?identifier=<run_id>`.
+- **OTel**: EVAL runs set span attributes `eval.experiment`, `eval.run_label`,
+  `eval.swarm_size`, `eval.target_model` on the synthesis span for filtering
+  in Jaeger.
+
+### EVAL-specific config environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AGENTIC_EVAL_BACKEND` | `schema` | Eval hook backend: `schema`, `deepeval`, or `none` |
+| `AGENTIC_EVAL_JUDGE_MODEL` | _(empty)_ | LiteLLM model string for the DeepEval judge (e.g. `gpt-4o`). When empty, uses the first available provider in `llm_provider_chain`. |
 
 ---
 
-## 13. Security & Execution Gatekeeper
+## 14. Security & Execution Gatekeeper
 
 - **Execution Gatekeeper** (`app/gatekeeper.py`): every execution plan is checked
   against the strict whitelist and routed to the **paper** broker (Alpaca paper
@@ -408,7 +581,7 @@ Evaluation hooks (`eval_backend`): `schema` (deterministic, default),
 
 ---
 
-## 14. Use Cases
+## 15. Use Cases
 
 - **UC-1 — Live market overview:** land on the Command Center; see the live
   pulse for all instruments.
@@ -429,12 +602,15 @@ Evaluation hooks (`eval_backend`): `schema` (deterministic, default),
 - **UC-10 — Forecast cone:** view the p10–p90 price projection tilted by crew bias.
 - **UC-11 — Paper trade:** the gatekeeper routes an approved plan to the paper
   broker (stub/Alpaca paper).
-- **UC-12 — Degraded mode:** missing keys/services fall back gracefully
+- **UC-12 — EVAL benchmark:** run a swarm-size × model experiment matrix via
+  the EVAL Lab dashboard or `scripts/run_eval_matrix.py`; view aggregated
+  quality/cost/latency results in the EVAL Lab workspace.
+- **UC-13 — Degraded mode:** missing keys/services fall back gracefully
   (deterministic engine, cached data, heuristic vision).
 
 ---
 
-## 15. Glossary
+## 16. Glossary
 
 - **Swarm** — the team of specialist CrewAI agents.
 - **MCP** — Model Context Protocol; standards-based tool interface for agents.
@@ -442,6 +618,12 @@ Evaluation hooks (`eval_backend`): `schema` (deterministic, default),
 - **Provenance chip** — the per-tab badge declaring a view's data source/flow.
 - **Gatekeeper** — the whitelist + broker-routing guard on execution plans.
 - **Run store** — where run traces + reports are persisted (in-memory or PostgreSQL).
+- **EVAL hooks** — asynchronous post-synthesis evaluation pipeline (schema + LLM-judge).
+- **SwarmSize** — configurable crew size: SOLO (1), TRIAD (3), FULL (7) agents.
+- **EvalConfig** — per-request experiment configuration (experiment name, run label, swarm size, target model).
+- **Golden Dataset** — curated set of 5 VIX/options/derivatives prompts used for benchmark experiments.
+- **DeepEval** — LLM-as-judge evaluation framework; computes faithfulness and answer_relevancy.
+- **Quality score** — weighted composite: 50% faithfulness + 30% answer_relevancy + 20% schema_compliance.
 
 ---
 

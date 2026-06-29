@@ -1,47 +1,53 @@
 # Architecture — Autonomous AI Trading Desk & Market Prediction Engine
 
 > **Status:** Living document. Updated at the end of every verified execution step.
-> **Last updated:** 2026-06-17 (v1.3 "Live Forecast Desk" — Phases 1–5 complete)
+> **Last updated:** 2026-06-29 (v2.0+ EVAL Research Lab integration)
 
 ## 1. System Overview
 
 The system evaluates fundamental and technical market data to generate trading
 probability reports. A user submits an analysis request (ticker + optional chart
-screenshot) through the UI; n8n dispatches the request to the agentic engine's
-async orchestrator, which runs the full chain (guardrails → RAG → vision →
-six-agent crew → output rail → GBM forecast) in a background thread and returns
-a `run_id` immediately. The dashboard polls `GET /runs/{id}` until the report is
-ready. Live market data (`/market-live`) populates the Command Center with
-VIX-regime signals, index prices, and per-ticker momentum reads; regime changes
-fire in-app alerts.
+screenshot) through the UI; the agentic engine's async orchestrator runs the
+full chain (guardrails → RAG → vision → six-agent crew → output rail → GBM
+forecast → eval hooks) in a background thread and returns a `run_id`
+immediately. The dashboard polls `GET /runs/{id}` until the report is ready.
+Live market data (`/market-live`) populates the Command Center with VIX-regime
+signals, index prices, and per-ticker momentum reads; regime changes fire
+in-app alerts. Post-synthesis, **eval hooks** compute quality metrics
+(schema_compliance, faithfulness, answer_relevancy) asynchronously and post
+scores to Langfuse and Phoenix.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │  LAYER 1 — FRONTEND                                                 │
-│  ┌──────────────────────────┐   ┌────────────────────────────────┐  │
-│  │ React Trading Dashboard  │   │ Streamlit Admin Panel          │  │
-│  │ real-time analysis,      │   │ raw data submission            │  │
-│  │ charts, agent logs       │   │ (reports, news, chart images)  │  │
-│  └────────────┬─────────────┘   └───────────────┬────────────────┘  │
-└───────────────┼─────────────────────────────────┼───────────────────┘
-                │ webhook (JSON)                  │ webhook (multipart)
-┌───────────────▼─────────────────────────────────▼───────────────────┐
-│  LAYER 2 — ORCHESTRATOR (n8n, API Gateway)                          │
+│  ┌──────────────────────────┐                                       │
+│  │ React Trading Dashboard  │   QST terminal aesthetic              │
+│  │ LIVE DESK · ANALYSIS ·   │   RBAC login gate                     │
+│  │ BRIEFING · EVAL LAB ·   │                                       │
+│  │ INGEST(admin) ·         │                                       │
+│  │ ASSISTANT               │                                       │
+│  └────────────┬─────────────┘                                       │
+└───────────────┼─────────────────────────────────────────────────────┘
+                │ REST / SSE / webhook (JSON)
+┌───────────────▼─────────────────────────────────────────────────────┐
+│  LAYER 2 — ORCHESTRATOR (in-engine async, optional n8n)              │
 │  payload validation → input guardrails → parallel routing →        │
-│  synthesis → output guardrails → response                          │
+│  synthesis → output guardrails → eval hooks → response              │
 └───────┬───────────────┬───────────────┬───────────────┬─────────────┘
         │               │               │               │
 ┌───────▼─────┐ ┌───────▼─────┐ ┌───────▼─────┐ ┌───────▼─────┐
 │ RAG Service │ │ Vision      │ │ Agentic     │ │ Guardrails  │  LAYER 3
 │ :8001       │ │ Analyser    │ │ Engine      │ │ Service     │  (FastAPI,
 │ ChromaDB +  │ │ :8002       │ │ :8003       │ │ :8004       │  Docker,
-│ HF embed    │ │ PyTorch     │ │ CrewAI      │ │ NeMo        │  AWS EC2)
-└───────┬─────┘ │ ResNet-50/  │ │ multi-agent │ │ Guardrails  │
-        │       │ EfficientNet│ └───────┬─────┘ └───────┬─────┘
-        │       └─────────────┘         │               │
+│ HF embed    │ │ LLM vision  │ │ CrewAI +    │ │ NeMo        │  AWS EC2)
+└───────┬─────┘ │ (gpt-4o-   │ │ MCP + EVAL  │ │ Guardrails  │
+        │       │ mini/gemini)│ │ hooks       │ └───────┬─────┘
+        │       └─────────────┘ └───────┬─────┘         │
+        │                               │               │
 ┌───────▼────────────────────────────────▼───────────────▼────────────┐
 │  LAYER 4 — LLM LAYER                                                │
-│  AWS Bedrock (primary)  ·  local Llama.cpp / Ollama (local tasks)   │
+│  Groq → OpenAI → Gemini → Ollama (Bedrock when ENV=aws)             │
+│  + EVAL judge model (pinned or cascade via LiteLLM)                 │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -50,8 +56,8 @@ fire in-app alerts.
 ### Layer 1 — Frontend
 | Component | Stack | Purpose |
 |---|---|---|
-| Trading Dashboard | React (Vite + TypeScript) | Main UI: submit analysis requests, display probability reports, live charts, streaming agent logs |
-| Admin Panel | Streamlit | Internal tool: submit raw data (financial reports, news articles, chart screenshots) into the RAG/vision pipelines |
+| Trading Dashboard | React (Vite + TypeScript) | Main UI: submit analysis requests, display probability reports, live charts, streaming agent logs, EVAL Lab benchmark dashboard |
+| ~~Admin Panel~~ | ~~Streamlit~~ | **Retired** — manual ingestion lives in the dashboard's admin-only INGEST tab |
 
 ### Layer 2 — Orchestrator (n8n)
 - Receives webhooks from both frontends.
@@ -91,6 +97,8 @@ Agentic Engine     POST /analyze           async orchestration entry → {run_id
                    GET  /runs/{run_id}     trace + status + report (poll until status=done)
                    POST /synthesize        (legacy) direct synthesis (still available)
                    GET  /memory/{ticker}   per-ticker persisted analysis history (agent_memory.db)
+                   POST /eval/synthesize   EVAL: synthesis with dynamic EvalConfig (swarm size + model)
+                   GET  /eval/summary      EVAL: aggregated benchmark results (JSONL + Langfuse + Phoenix)
 
 Guardrails         POST /validate/input    {question, ticker} → allow/deny + violations
                    POST /validate/output   {text, evidence} → pass | sanitize | block
@@ -104,9 +112,10 @@ All services       GET  /health (liveness), GET /ready (dependency probes, 503 o
 |---|---|---|
 | RAG store | `chroma` (persistent, HF `all-MiniLM-L6-v2`) | `memory` (keyword overlap) |
 | RAG summarizer | `bedrock` / `ollama` | `extractive` (deterministic) |
-| Vision | `torch` (ChartConditionNet, ResNet-50) | `heuristic` (ink-centroid trend) |
-| Agentic | `crew` (CrewAI on Bedrock) | `deterministic` (rule-based) |
+| Vision | `llm` (gpt-4o-mini → gemini escalation) | `heuristic` (ink-centroid trend) |
+| Agentic | `crew` (CrewAI on Groq→OpenAI→Gemini) | `deterministic` (rule-based) |
 | Guardrails | `nemo` (rules + LLM self-check) | `rules` (deterministic rails only) |
+| Eval hooks | `deepeval` (LLM-as-judge) | `schema` (deterministic checks only) / `none` (disabled) |
 
 Every fallback honors the same API contract, so the system is demoable and
 testable offline end-to-end (verified by `scripts/e2e_local.py`).
@@ -132,6 +141,7 @@ testable offline end-to-end (verified by `scripts/e2e_local.py`).
    - Guardrails `/validate/output` → output rail (appends caveat on sanitize)
    - `build_forecast()` → GBM p10/p50/p90 projection (drift tilted by crew directional bias)
    - Result stored on `RunStore`
+   - **Eval hooks** (async, fire-and-forget): `schema_compliance` always; `faithfulness` + `answer_relevancy` when `AGENTIC_EVAL_BACKEND=deepeval`. Scores posted to Langfuse + Phoenix.
 5. Dashboard polls `GET /runs/{run_id}` every 1.5 s; maps trace steps to pipeline stage indicator; resolves on `status==="done"`.
 6. Report (including `forecast`) rendered; persisted to `localStorage` for reload.
 
@@ -160,14 +170,15 @@ Workflow export: [orchestration/n8n/workflows/analyze-request.json](../orchestra
 ```
 /docs                     project documentation (this file, changelog, todo, prompt log)
 /services/rag-service     FastAPI + ChromaDB retrieval service
-/services/vision-analyser FastAPI + PyTorch chart scoring service
-/services/agentic-engine  FastAPI + CrewAI multi-agent service
+/services/vision-analyser FastAPI + LLM vision chart scoring service
+/services/agentic-engine  FastAPI + CrewAI multi-agent service + MCP + EVAL hooks
 /services/guardrails-service  FastAPI + NeMo Guardrails service
-/frontend/trading-dashboard   React app (LIVE DESK, BRIEFING, ANALYSIS, admin-only INGEST)
+/frontend/trading-dashboard   React app (LIVE DESK, BRIEFING, ANALYSIS, EVAL LAB, admin-only INGEST)
 /orchestration/n8n        n8n workflow JSON exports
 /infra                    docker-compose, deployment scripts, IaC
 /data/seed                mock/seed data (Nvidia, Elbit, Next Vision, Tondo Smart, CUE)
-/scripts                  dev utilities
+/data/eval_results_*.jsonl  EVAL benchmark runner output (Phase 2)
+/scripts                  dev utilities + EVAL benchmark runner + aggregation pipeline
 /tests                    cross-service integration tests
 ```
 

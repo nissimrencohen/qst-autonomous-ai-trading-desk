@@ -63,6 +63,15 @@
 | 5 | Live mega cross-referenced analysis (SPCX, AAPL/MSFT/NVDA/GOOGL/AMZN, UVXY under one VIX regime) | ✅ Done | 2026-06-17 |
 | 6 | Docs refresh + strict system evaluation | ✅ Done | 2026-06-17 |
 
+### EVAL Research Lab — Phase Status
+
+| Phase | Scope | Status | Verified |
+|---|---|---|---|
+| 1 | Eval hooks (`eval_hooks.py`): schema_compliance (deterministic) + faithfulness/answer_relevancy (DeepEval LLM-as-judge). Async ThreadPoolExecutor, Langfuse + Phoenix score posting. Config: `AGENTIC_EVAL_BACKEND`, `AGENTIC_EVAL_JUDGE_MODEL`. Unit tests (`test_eval_hooks.py`, 5 tests). | ✅ Done | 2026-06-29 |
+| 2 | Benchmark runner (`scripts/run_eval_matrix.py`): Golden Dataset (5 prompts × VIXY/SVXY/SPCX), 3×3 matrix (SwarmSize × Model), serial execution with provider fallback, JSONL output. `POST /eval/synthesize` endpoint + `eval_schemas.py` (SwarmSize, EvalConfig, EvalSynthesizeRequest). Dynamic swarm sizing in `engine.py` (SOLO/TRIAD/FULL). | ✅ Done | 2026-06-29 |
+| 3 | Data aggregation (`scripts/aggregate_eval_data.py`): JSONL + Langfuse REST API + Phoenix REST API → `dashboard_ready_data.json`. `GET /eval/summary` API endpoint. Quality composite (50% faithfulness + 30% relevancy + 20% schema). Auto-generated best-config conclusions. | ✅ Done | 2026-06-29 |
+| 4 | EVAL Lab dashboard (`EvalDashboard.tsx`): React workspace fetching `GET /eval/summary`. Bar charts, scatter plots, conclusions panel. Wired into `App.tsx` as a new tab. | ✅ Done | 2026-06-29 |
+
 ## Architecture Requirements Checklist
 
 ### Layer 1 — Frontend
@@ -87,6 +96,8 @@
 - [x] Agent concurrency — POST /analyze/batch, asyncio.Semaphore, 7 tickers in parallel (v1.4, 2026-06-17)
 - [x] Market data redundancy — Polygon.io primary, Alpaca secondary, yfinance fallback (v1.4, 2026-06-17)
 - [x] JWT authentication — opt-in, HS256, POST /auth/token, Depends(require_auth) (v1.4, 2026-06-17)
+- [x] EVAL hooks — post-synthesis schema_compliance (deterministic) + faithfulness + answer_relevancy (DeepEval LLM-as-judge), async ThreadPoolExecutor, Langfuse + Phoenix integration (EVAL, 2026-06-29)
+- [x] EVAL Research Lab — `POST /eval/synthesize` + `GET /eval/summary` endpoints, dynamic SwarmSize (SOLO/TRIAD/FULL), benchmark runner + aggregation pipeline (EVAL, 2026-06-29)
 - [ ] Deployed to AWS EC2 with Docker
 
 ### Layer 4 — LLM Layer
@@ -126,6 +137,9 @@
 | E2E latency (request → validated report) | < 30 s | **1.50 s** dev backends · **~22–35 s** crew/Gemini warm (measured 2026-06-17) · ⚠ local Ollama path ~68–98 s (CPU-bound, acceptable for demo) |
 | /market-live latency (warm cache) | < 2 s | **0.005 s** (90 s TTL cache, computed in worker thread) |
 | Run/poll: time to run_id | < 1 s | **0.029 s** median (POST /analyze → {run_id}) |
+| Eval schema_compliance pass rate | 100% on valid reports | 100% (deterministic; unit tests 5/5 pass) |
+| Eval hook latency (schema-only) | < 0.1 s | ~0.01 s (no LLM calls in default backend) |
+| Eval hook latency (deepeval) | < 30 s | ~15–25 s (2–3 LLM judge calls) |
 
 ## Strict System Evaluation — אבולוציה קשוחה (2026-06-17)
 

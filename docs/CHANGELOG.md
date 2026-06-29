@@ -8,6 +8,48 @@ newest first. Format loosely follows [Keep a Changelog](https://keepachangelog.c
 
 _(v1.4 follow-ups: EC2 deployment, GARCH/Heston forecast, social pipeline expansion, max_pos post-processing)_
 
+### EVAL Research Lab — 4-phase LLMOps evaluation system
+
+**Added**
+- **Phase 1 — Eval hooks** (`app/eval_hooks.py`): three post-synthesis metrics
+  computed asynchronously in a background `ThreadPoolExecutor(max_workers=2)`:
+  `schema_compliance` (deterministic: probs sum, confidence range, risk_level
+  enum, caveats non-empty), `faithfulness` (LLM-as-judge via DeepEval), and
+  `answer_relevancy` (LLM-as-judge via DeepEval). Results posted to Langfuse
+  (Score objects on the synthesis trace) and Arize Phoenix
+  (`/v1/trace_annotations`). Config: `AGENTIC_EVAL_BACKEND` (`schema` |
+  `deepeval` | `none`), `AGENTIC_EVAL_JUDGE_MODEL` (optional pinned judge).
+  Unit tests: `test_eval_hooks.py` (5 tests, all deterministic).
+- **Phase 2 — Benchmark runner** (`scripts/run_eval_matrix.py`): Golden Dataset
+  of 5 VIX/options/derivatives prompts × 3 swarm sizes (SOLO/TRIAD/FULL) × 3
+  models = 45 cells. Strictly serial execution with per-provider fallback
+  (openai → groq → github → gemini_flash → gemini). Results saved as JSONL.
+- **Phase 2 — Schemas** (`app/eval_schemas.py`): `SwarmSize` enum
+  (SOLO/TRIAD/FULL), `EvalConfig` (experiment_name, run_label, swarm_size,
+  target_model, skip_fallback), `EvalSynthesizeRequest` (superset of
+  `SynthesizeRequest`). Dynamic swarm sizing in `engine.py`.
+- **Phase 2 — EVAL API** (`app/api.py`): `POST /eval/synthesize` — runs the
+  analyst crew with a dynamic `EvalConfig` and returns a `ProbabilityReport`.
+  Same guardrails/gatekeeper as production for score comparability.
+- **Phase 3 — Data aggregation** (`scripts/aggregate_eval_data.py`): fuses JSONL
+  + Langfuse REST API + Phoenix REST API into `dashboard_ready_data.json`.
+  Quality composite: 50% faithfulness + 30% relevancy + 20% schema_compliance.
+  Auto-generated best-config conclusions. `GET /eval/summary` API endpoint
+  serves the aggregated payload to the frontend.
+- **Phase 4 — EVAL Lab dashboard** (`EvalDashboard.tsx`): React workspace
+  accessible via the EVAL LAB tab. Fetches `GET /eval/summary` and renders
+  bar charts, cost comparison, quality scatter, and conclusions panel.
+
+**Docs**
+- `SYSTEM_OVERVIEW.md`: added EVAL Research Lab section (§9), updated all
+  diagrams (system architecture, component, swarm, data flow), updated
+  observability (§13) with eval pipeline integration, added UC-12 (EVAL
+  benchmark), added 6 glossary terms.
+- `ARCHITECTURE.md`: updated Layer 1–4 diagrams, added EVAL endpoints, added
+  eval backend to backend matrix, updated data flow and repository layout.
+- `TODO_AND_METRICS.md`: added EVAL Research Lab phase tracker, added eval
+  checklist items, added eval metrics.
+
 ### Rebrand → QST · real chart vision · per-tab product clarity
 
 **Changed**
