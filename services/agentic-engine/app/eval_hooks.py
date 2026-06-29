@@ -275,37 +275,58 @@ def _post_to_phoenix(
     req: Any,
     report: Any,
     run_id: str,
+    eval_metadata: dict | None = None,
+    otel_trace_id: str | None = None,
 ) -> None:
-    """POST eval scores to Arize Phoenix /v1/evaluations if endpoint is set.
+    """POST eval scores to Arize Phoenix /v1/trace_annotations if endpoint is set.
 
-    Phoenix's REST evaluation API accepts rows keyed by a subject_id.
-    We use the server run_id as a stable document identifier.
+    We use the trace_id of the active request and set the annotation's identifier to run_id.
+
+    Args:
+        scores:        Metric name → float score mapping.
+        req:           Original SynthesizeRequest (question + ticker).
+        report:        Final ProbabilityReport.
+        run_id:        Server-assigned run UUID (stored as annotation identifier).
+        eval_metadata: Optional dict from EvalConfig.metadata_dict.
+        otel_trace_id: The OpenTelemetry trace ID.
     """
     from app.config import settings
 
     if not settings.phoenix_endpoint:
         return
 
+    if not otel_trace_id:
+        import uuid
+        otel_trace_id = uuid.uuid4().hex
+
     base_url = settings.phoenix_endpoint.rstrip("/")
-    url = f"{base_url}/v1/evaluations"
+    url = f"{base_url}/v1/trace_annotations"
+
+    # Base score metadata present on every run (production + eval).
+    base_score_meta: dict[str, Any] = {
+        "ticker": req.ticker.upper(),
+        "question": req.question[:120],
+        "engine_backend": report.engine_backend,
+        "horizon_days": req.horizon_days,
+    }
+    if eval_metadata:
+        base_score_meta.update(eval_metadata)
 
     payload = {
-        "version": "1",
-        "evaluations": [
+        "data": [
             {
                 "name": metric_name,
-                "subject_id": {"type": "document", "document_id": run_id},
-                "score": score,
-                "label": "pass" if score >= 0.5 else "fail",
-                "metadata": {
-                    "ticker": req.ticker.upper(),
-                    "question": req.question[:120],
-                    "engine_backend": report.engine_backend,
-                    "horizon_days": req.horizon_days,
+                "annotator_kind": "CODE" if metric_name == "schema_compliance" else "LLM",
+                "trace_id": otel_trace_id,
+                "result": {
+                    "label": "pass" if score >= 0.5 else "fail",
+                    "score": score,
                 },
+                "metadata": base_score_meta,
+                "identifier": run_id,
             }
             for metric_name, score in scores.items()
-        ],
+        ]
     }
 
     data = json.dumps(payload).encode()
@@ -342,6 +363,8 @@ def _eval_worker(
     lf_client: Any,
     run_id: str,
     lf_trace_id: str | None,
+    eval_metadata: dict | None = None,
+    otel_trace_id: str | None = None,
 ) -> None:
     """Full eval pipeline — executed inside the background ThreadPoolExecutor."""
     from app.config import settings
@@ -358,16 +381,17 @@ def _eval_worker(
 
     elapsed = round(time.monotonic() - t0, 2)
     log.info(
-        "eval run_id=%s backend=%s scores=%s elapsed=%.2fs",
+        "eval run_id=%s backend=%s scores=%s elapsed=%.2fs eval_experiment=%s",
         run_id,
         settings.eval_backend,
         {k: round(v, 3) for k, v in scores.items()},
         elapsed,
+        (eval_metadata or {}).get("eval_experiment", "n/a"),
     )
 
     # Publish results — failures are logged but never re-raised
     _post_to_langfuse(lf_client, lf_trace_id or run_id, scores)
-    _post_to_phoenix(scores, req, report, run_id)
+    _post_to_phoenix(scores, req, report, run_id, eval_metadata=eval_metadata, otel_trace_id=otel_trace_id)
 
 
 # ── 6. Public API ─────────────────────────────────────────────────────────────
@@ -379,6 +403,7 @@ def run_eval_async(
     lf_client: Any,
     run_id: str,
     lf_trace_id: str | None = None,
+    eval_metadata: dict | None = None,
 ) -> None:
     """Submit evaluation to the background thread pool (fire-and-forget).
 
@@ -387,12 +412,15 @@ def run_eval_async(
     eval crashes, a WARNING is logged — it never propagates to the caller.
 
     Args:
-        req:          SynthesizeRequest — original request (question + RAG context).
-        report:       ProbabilityReport — final synthesis output to evaluate.
-        lf_client:    Langfuse client instance (None → skip Langfuse scoring).
-        run_id:       Server-assigned run UUID (for logging and Phoenix subject_id).
-        lf_trace_id:  Langfuse trace ID if available (may differ from run_id).
-                      Used to attach Score objects to the correct Langfuse trace.
+        req:           SynthesizeRequest — original request (question + RAG context).
+        report:        ProbabilityReport — final synthesis output to evaluate.
+        lf_client:     Langfuse client instance (None → skip Langfuse scoring).
+        run_id:        Server-assigned run UUID (for logging and Phoenix subject_id).
+        lf_trace_id:   Langfuse trace ID if available (may differ from run_id).
+                       Used to attach Score objects to the correct Langfuse trace.
+        eval_metadata: Optional dict from EvalConfig.metadata_dict. Propagated
+                       to Phoenix score metadata and Langfuse score comments so
+                       all EVAL scores carry experiment/swarm_size/model tags.
     """
     from app.config import settings
 
@@ -400,9 +428,28 @@ def run_eval_async(
         log.debug("eval_backend=none — skipping eval for run_id=%s", run_id)
         return
 
+    # Synchronously extract the active OpenTelemetry trace ID before submitting to background executor
+    otel_trace_id = None
     try:
-        _EXECUTOR.submit(_eval_worker, req, report, lf_client, run_id, lf_trace_id)
-        log.debug("eval submitted for run_id=%s (backend=%s)", run_id, settings.eval_backend)
+        from opentelemetry import trace as otel_trace
+        current_span = otel_trace.get_current_span()
+        if current_span:
+            ctx = current_span.get_span_context()
+            if ctx and ctx.is_valid:
+                otel_trace_id = f"{ctx.trace_id:032x}"
+    except Exception:
+        pass
+
+    try:
+        _EXECUTOR.submit(
+            _eval_worker, req, report, lf_client, run_id, lf_trace_id, eval_metadata, otel_trace_id
+        )
+        log.debug(
+            "eval submitted for run_id=%s (backend=%s experiment=%s)",
+            run_id,
+            settings.eval_backend,
+            (eval_metadata or {}).get("eval_experiment", "n/a"),
+        )
     except RuntimeError as exc:
         # Executor was shut down (e.g. during process teardown)
         log.warning("eval_async submit failed (executor shutdown?): %s", exc)

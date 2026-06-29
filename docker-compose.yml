@@ -162,7 +162,8 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - agent_memory:/srv/data
+      - ./data:/srv/data
+      - ./scripts:/srv/scripts
 
   guardrails-service:
     <<: *defaults

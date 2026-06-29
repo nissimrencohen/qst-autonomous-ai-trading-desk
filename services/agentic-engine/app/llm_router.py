@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import Any
 
 import litellm
@@ -107,12 +108,116 @@ def pick_crewai_llm():
             name, model, "extra_headers" in kwargs,
         )
         llm = _entry_to_crewai_llm(name, model, kwargs)
-        _attach_resilient_call(llm, chain)
+        _attach_resilient_call(llm, chain, fallback=True)
         return llm
 
     raise RuntimeError(
         "No LLM provider available — set at least one API key or ensure Ollama "
         "is reachable. Chain: " + settings.llm_provider_chain
+    )
+
+
+def pick_crewai_llm_pinned(target_model: str):
+    """Return a crewai.LLM pinned to target_model — NO resilient fallback chain.
+
+    For EVAL benchmark runs: the test matrix requires each configuration to
+    use EXACTLY the specified model. Attaching _attach_resilient_call would
+    silently swap providers on 429/5xx, producing invalid comparison data.
+
+    Model string resolution follows LiteLLM conventions:
+      "groq/llama-3.3-70b-versatile"  → Groq API key
+      "gemini/gemini-2.5-flash"        → Google API key
+      "gpt-4o" / "openai/gpt-4o"      → OpenAI API key
+      "openai/<anything>"              → OpenAI API key
+      "github/<anything>"              → GitHub Models (Azure endpoint)
+      "openai/<model>" + ollama_url    → Ollama (when force_local_ollama)
+
+    Raises:
+        RuntimeError: if the API key required for target_model is not configured,
+                      or if target_model cannot be resolved to any known provider.
+    """
+    from crewai import LLM
+    _force_litellm_routing(LLM)
+
+    model_lower = target_model.lower()
+
+    # ── Groq ──────────────────────────────────────────────────────────────────
+    if model_lower.startswith("groq/"):
+        key = settings.groq_api_key.get_secret_value()
+        if not key:
+            raise RuntimeError(
+                f"EVAL: target_model={target_model!r} requires AGENTIC_GROQ_API_KEY "
+                "which is not set. Set the key or choose a different target_model."
+            )
+        kwargs: dict = {"api_key": key}
+        kwargs.update(_helicone_overrides("groq"))
+        log.info("EVAL LLM router: pinned provider=groq model=%s", target_model)
+        _set_global_litellm_key("groq", key)
+        llm = _entry_to_crewai_llm("groq", target_model, kwargs)
+        _attach_resilient_call(llm, [], fallback=False)
+        return llm
+
+    # ── Gemini ────────────────────────────────────────────────────────────────
+    if model_lower.startswith("gemini/"):
+        key = settings.google_api_key.get_secret_value()
+        if not key:
+            raise RuntimeError(
+                f"EVAL: target_model={target_model!r} requires AGENTIC_GOOGLE_API_KEY "
+                "which is not set."
+            )
+        kwargs = {"api_key": key}
+        log.info("EVAL LLM router: pinned provider=gemini model=%s", target_model)
+        _set_global_litellm_key("gemini", key)
+        llm = _entry_to_crewai_llm("gemini", target_model, kwargs)
+        _attach_resilient_call(llm, [], fallback=False)
+        return llm
+
+    # ── OpenAI (gpt-* shorthand or openai/ prefix) ────────────────────────────
+    if model_lower.startswith("gpt-") or model_lower.startswith("openai/"):
+        key = settings.openai_api_key.get_secret_value()
+        if not key:
+            raise RuntimeError(
+                f"EVAL: target_model={target_model!r} requires AGENTIC_OPENAI_API_KEY "
+                "which is not set."
+            )
+        kwargs = {"api_key": key}
+        kwargs.update(_helicone_overrides("openai"))
+        log.info("EVAL LLM router: pinned provider=openai model=%s", target_model)
+        _set_global_litellm_key("openai", key)
+        llm = _entry_to_crewai_llm("openai", target_model, kwargs)
+        _attach_resilient_call(llm, [], fallback=False)
+        return llm
+
+    # ── GitHub Models (Azure OpenAI-compat endpoint) ──────────────────────────
+    if model_lower.startswith("github/"):
+        key = settings.github_api_key.get_secret_value()
+        if not key:
+            raise RuntimeError(
+                f"EVAL: target_model={target_model!r} requires AGENTIC_GITHUB_API_KEY "
+                "which is not set."
+            )
+        kwargs = {"api_key": key, "api_base": settings.github_base_url}
+        log.info("EVAL LLM router: pinned provider=github model=%s", target_model)
+        llm = _entry_to_crewai_llm("github", target_model, kwargs)
+        _attach_resilient_call(llm, [], fallback=False)
+        return llm
+
+    # ── Ollama ────────────────────────────────────────────────────────────────
+    if model_lower.startswith("ollama/"):
+        ollama_model = target_model.split("/", 1)[1]
+        kwargs = {
+            "api_key": "ollama",
+            "api_base": f"{settings.ollama_url.rstrip('/')}/v1",
+        }
+        log.info("EVAL LLM router: pinned provider=ollama model=%s", ollama_model)
+        llm = _entry_to_crewai_llm("ollama", f"openai/{ollama_model}", kwargs)
+        _attach_resilient_call(llm, [], fallback=False)
+        return llm
+
+    raise RuntimeError(
+        f"EVAL: Cannot resolve target_model={target_model!r} to a known provider. "
+        "Use a LiteLLM-prefixed string: 'groq/<model>', 'gemini/<model>', "
+        "'gpt-<model>', 'openai/<model>', 'github/<model>', or 'ollama/<model>'."
     )
 
 
@@ -180,10 +285,63 @@ def _crewai_ollama():
     return _entry_to_crewai_llm("ollama", model, kwargs)
 
 
-def _attach_resilient_call(llm, chain: list[tuple[str, Any]]) -> None:
+# ── Empty-response resilience ─────────────────────────────────────────────────
+# Gemini (and occasionally other providers via LiteLLM) intermittently return a
+# completion with an empty `choices` list. CrewAI's structured-output path runs
+# that response through `instructor`, whose openai handler does
+# `response.choices[0].message` and raises IndexError → InstructorRetryException
+# ("list index out of range"). Under the FULL swarm (more agents, larger context)
+# this was crashing entire eval syntheses with HTTP 502. We retry a few times,
+# then degrade gracefully so one flaky agent can't abort the whole run.
+
+_AGENT_CALL_RETRIES = 3          # total attempts per provider before fallback/degrade
+_EMPTY_RESPONSE_BACKOFF_S = 1.5  # backoff between empty-response retries
+_RATE_LIMIT_BACKOFF_S = 5.0      # backoff between rate-limit retries (Groq TPM ~6-10s)
+
+# A valid, neutral ProbabilityReport JSON. Engine.synthesize() overrides the
+# identity fields (run_id/ticker/question/horizon_days/generated_at/engine_backend)
+# but model_validate() still requires them present, so we include placeholders.
+# Low confidence + an explicit caveat make degraded runs identifiable downstream.
+_GRACEFUL_DEGRADATION_STUB = (
+    '{"run_id":"degraded","ticker":"NA","question":"degraded","horizon_days":1,'
+    '"generated_at":"1970-01-01T00:00:00+00:00","engine_backend":"crew-degraded",'
+    '"probabilities":{"bullish":0.33,"neutral":0.34,"bearish":0.33},'
+    '"technical_view":{"condition_score":0.0,"dominant_patterns":[],'
+    '"rationale":"Graceful-degradation stub: the model returned an empty response after retries."},'
+    '"fundamental_view":{"key_drivers":[],"rationale":"Degraded fallback — neutral stance assumed.","sources":[]},'
+    '"risk_assessment":{"risk_level":"medium","key_risks":["incomplete analysis"],'
+    '"max_position_pct":0.0,"notes":"graceful degradation"},'
+    '"confidence":0.2,'
+    '"caveats":["Graceful-degradation stub: upstream LLM returned no choices; treat as low-signal."],'
+    '"execution_plan":null,"volatility_view":null,"space_economy_view":null,"forecast":null,"vision":null}'
+)
+
+
+def _is_empty_response_error(exc: Exception) -> bool:
+    """True when an exception is the empty-`choices` / instructor-parse failure.
+
+    Matches by message substring and by walking the __cause__/__context__ chain
+    so it catches both the raw IndexError and the wrapping InstructorRetryException.
+    """
+    seen = 0
+    cur: BaseException | None = exc
+    while cur is not None and seen < 6:
+        text = f"{type(cur).__name__}: {cur}".lower()
+        if (
+            "list index out of range" in text
+            or "instructorretry" in text
+            or ("choices" in text and "index" in text)
+        ):
+            return True
+        cur = cur.__cause__ or cur.__context__
+        seen += 1
+    return False
+
+
+def _attach_resilient_call(llm, chain: list[tuple[str, Any]], fallback: bool = True) -> None:
     """Replace llm.call() on this instance with a version that:
       1. Strips 'cache_breakpoint' from messages (Anthropic-only, rejected elsewhere)
-      2. Falls back through the provider chain on 429/5xx before raising
+      2. Falls back through the provider chain on 429/5xx before raising (if fallback=True)
 
     Patches the instance attribute only — the class method is untouched.
     _orig is a bound method capturing self=llm, so mutating llm.model et al.
@@ -212,20 +370,54 @@ def _attach_resilient_call(llm, chain: list[tuple[str, Any]]) -> None:
                 for m in messages
             ]
 
-        # Try the primary provider; on ANY failure activate the fallback chain.
-        # Beyond rate-limits, some providers reject CrewAI's auto-generated tool
-        # schemas (e.g. Groq's strict 'additionalProperties' / 'properties'
-        # validation) or enforce tight token caps. A provider that cannot serve
-        # this request must not hard-fail it when another provider can — genuine
-        # errors still surface once the whole chain is exhausted.
-        try:
-            return _orig(messages, *args, **kwargs)
-        except _RETRIABLE as exc:
-            log.warning("Provider %s → %s; activating fallback chain",
-                        llm.model, type(exc).__name__)
-        except Exception as exc:
-            log.warning("Provider %s failed (%s); activating fallback chain: %s",
-                        llm.model, type(exc).__name__, str(exc)[:160])
+        # Primary provider attempts. Transient failures (rate-limit / empty
+        # response) get bounded in-place retries first; other failures activate
+        # the fallback chain (when enabled) or degrade gracefully so a single
+        # flaky agent can't 502 the whole synthesis.
+        saw_empty_response = False
+        for attempt in range(1, _AGENT_CALL_RETRIES + 1):
+            try:
+                return _orig(messages, *args, **kwargs)
+            except _RETRIABLE as exc:
+                # Rate-limit / transient server errors: back off and retry the
+                # SAME provider (Groq free-tier TPM clears in ~6-10s).
+                if attempt < _AGENT_CALL_RETRIES:
+                    log.warning(
+                        "Provider %s transient %s (attempt %d/%d); backing off",
+                        llm.model, type(exc).__name__, attempt, _AGENT_CALL_RETRIES,
+                    )
+                    time.sleep(_RATE_LIMIT_BACKOFF_S * attempt)
+                    continue
+                if fallback:
+                    log.warning("Provider %s → %s after retries; activating fallback chain",
+                                llm.model, type(exc).__name__)
+                    break
+                # Pinned-model path (eval): surface the failure so the caller
+                # (run_eval_matrix) can fall through to a working provider for
+                # REAL data instead of recording a degraded stub.
+                log.warning("Provider %s → %s after retries; re-raising for caller fallback",
+                            llm.model, type(exc).__name__)
+                raise
+            except Exception as exc:
+                if _is_empty_response_error(exc):
+                    saw_empty_response = True
+                    if attempt < _AGENT_CALL_RETRIES:
+                        log.warning(
+                            "Provider %s empty/parse failure (attempt %d/%d: %s); retrying",
+                            llm.model, attempt, _AGENT_CALL_RETRIES, str(exc)[:120],
+                        )
+                        time.sleep(_EMPTY_RESPONSE_BACKOFF_S * attempt)
+                        continue
+                if fallback:
+                    log.warning("Provider %s failed (%s); activating fallback chain: %s",
+                                llm.model, type(exc).__name__, str(exc)[:160])
+                    break
+                # Pinned-model path (eval): surface the failure so the caller
+                # (run_eval_matrix) can fall through to a working provider for
+                # REAL data instead of recording a degraded stub.
+                log.warning("Provider %s failed (%s); re-raising for caller fallback: %s",
+                            llm.model, type(exc).__name__, str(exc)[:160])
+                raise
 
         # Walk the chain, skipping the provider that just failed
         primary = str(llm.model)
@@ -259,6 +451,8 @@ def _attach_resilient_call(llm, chain: list[tuple[str, Any]]) -> None:
                 # provider before giving up — a rate-limit, quota, expired-key,
                 # or other auth failure on one secondary provider must not abort
                 # the chain (the local Ollama last resort should still be tried).
+                if _is_empty_response_error(e):
+                    saw_empty_response = True
                 log.warning("Fallback %s failed (%s): %s",
                             fb_model, type(e).__name__, str(e)[:160])
             finally:
@@ -267,10 +461,14 @@ def _attach_resilient_call(llm, chain: list[tuple[str, Any]]) -> None:
                 llm.base_url          = _saved["base_url"]
                 llm.additional_params = _saved["additional_params"]
 
-        raise RuntimeError(
-            f"All providers exhausted. Primary: {primary}. "
-            f"Chain tried: {[m for m, _ in chain]}"
+        # Every provider exhausted. Degrade gracefully rather than 502-ing the
+        # whole synthesis — a single agent failing should not abort the run.
+        log.error(
+            "All providers exhausted (primary=%s, chain=%s); returning "
+            "graceful-degradation stub (saw_empty_response=%s)",
+            primary, [m for m, _ in chain], saw_empty_response,
         )
+        return _GRACEFUL_DEGRADATION_STUB
 
     llm.call = _resilient
 

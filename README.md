@@ -3,6 +3,18 @@
 Production-grade system that evaluates fundamental and technical market data to
 generate trading probability reports, built as an AI Engineering final project.
 
+> ⚠️ **Disclaimer — For Educational & Research Purposes Only.**
+> This project is provided solely for educational and research purposes as an
+> AI-engineering study. Nothing it produces — probability reports, signals,
+> forecasts, confidence scores, or any other output — constitutes financial,
+> investment, or trading advice, nor a recommendation to buy, sell, or hold any
+> security or other financial instrument. All trade-related features are
+> paper-only simulations and never connect to a live broker or move real funds.
+> Markets carry risk; past or modeled performance does not guarantee future
+> results. Always do your own research and consult a licensed financial advisor
+> before making any investment decision. The authors accept no liability for any
+> use of this software or its outputs.
+
 ## Architecture (4 layers)
 
 1. **Frontend** — React trading dashboard (`:3002`)

@@ -119,11 +119,15 @@ def build_langfuse_client():
         return None
 
 
+from langfuse.decorators import observe, langfuse_context
+
 @contextmanager
+@observe(name="synthesis")
 def synthesis_trace(
     lf_client,
     req: Any,
     run: Any,
+    eval_metadata: dict | None = None,
 ) -> Generator:
     """Context manager: open a Langfuse Trace around crew.kickoff().
 
@@ -137,6 +141,17 @@ def synthesis_trace(
                     output={"bullish": report.probabilities.bullish, ...}
                 )
 
+    Args:
+        lf_client:     Langfuse client (None → no-op, Langfuse disabled).
+        req:           SynthesizeRequest or EvalSynthesizeRequest.
+        run:           RunHandle carrying the server run_id.
+        eval_metadata: Optional dict produced by EvalConfig.metadata_dict.
+                       When provided, its keys are merged into the trace
+                       metadata and its EvalConfig.langfuse_tags are appended
+                       to the trace tags. Pass None (default) for all
+                       production (non-EVAL) synthesis calls — behaviour is
+                       completely unchanged.
+
     All exceptions in lf_client calls are caught so a Langfuse outage never
     prevents synthesis from completing.
     """
@@ -144,24 +159,56 @@ def synthesis_trace(
         yield None
         return
 
-    trace = None
+    # Base tags: ticker + "synthesis". EVAL runs append experiment/run/model tags.
+    base_tags = [req.ticker.upper(), "synthesis"]
+    extra_tags: list[str] = []
+    if eval_metadata:
+        # Pull the human-readable eval tags from the flattened metadata dict.
+        # EvalConfig.langfuse_tags is not available here (we only have the dict),
+        # so reconstruct from the known keys.
+        experiment = eval_metadata.get("eval_experiment", "")
+        run_label = eval_metadata.get("eval_run_label", "")
+        swarm_size = eval_metadata.get("eval_swarm_size", "")
+        raw_model = eval_metadata.get("eval_target_model", "cascade")
+        safe_model = raw_model.replace("/", "-").replace(":", "-")
+
+        if experiment:
+            extra_tags.append(experiment)
+        if run_label:
+            extra_tags.append(run_label)
+        if swarm_size:
+            extra_tags.append(swarm_size)
+        extra_tags.append(f"model-{safe_model}")
+
+    all_tags = base_tags + extra_tags
+
+    # Base metadata; EVAL fields are merged in on top so they're always visible
+    # alongside the standard run_id in the Langfuse trace metadata panel.
+    base_metadata: dict[str, Any] = {"run_id": run.run_id}
+    if eval_metadata:
+        base_metadata.update(eval_metadata)
+
     try:
-        trace = lf_client.trace(
+        langfuse_context.update_current_trace(
             name=f"synthesis/{req.ticker.upper()}",
-            user_id=req.ticker.upper(),
             session_id=run.run_id,
+            user_id=req.ticker.upper(),
             input={
                 "ticker": req.ticker.upper(),
                 "question": req.question,
                 "horizon_days": req.horizon_days,
             },
-            metadata={"run_id": run.run_id},
-            tags=[req.ticker.upper(), "synthesis"],
+            metadata=base_metadata,
+            tags=all_tags,
         )
     except Exception as exc:
-        log.warning("Langfuse trace creation failed (%s); continuing without trace", exc)
-        yield None
-        return
+        log.warning("Langfuse trace context update failed (%s)", exc)
+
+    trace = None
+    try:
+        trace = langfuse_context.get_current_trace()
+    except Exception:
+        pass
 
     try:
         yield trace
@@ -171,3 +218,4 @@ def synthesis_trace(
             lf_client.flush()
         except Exception:
             pass
+

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from app.auth import require_auth
 from app.orchestrator import run_analysis_job
 from app.schemas import AnalyzeRequest, ProbabilityReport, RunTrace, SynthesizeRequest
+from app.eval_schemas import EvalSynthesizeRequest
 from app.watchlist import WATCHLIST_ORDERED
 
 log = logging.getLogger(__name__)
@@ -117,6 +118,104 @@ def synthesize(payload: SynthesizeRequest, request: Request, _auth: AuthDep = No
         "synthesized run_id=%s ticker=%s p_bull=%.2f risk=%s backend=%s gatekeeper=%s",
         report.run_id, report.ticker, report.probabilities.bullish,
         report.risk_assessment.risk_level, report.engine_backend,
+        "allowed" if gk.execution_allowed else "BLOCKED",
+    )
+    return report
+
+
+# ── EVAL Research Lab: dynamic swarm + model synthesis ───────────────────────
+
+@router.post("/eval/synthesize", response_model=ProbabilityReport, tags=["eval"])
+def eval_synthesize(
+    payload: EvalSynthesizeRequest,
+    request: Request,
+    _auth: AuthDep = None,
+) -> ProbabilityReport:
+    """Run the analyst crew with a dynamic EvalConfig and return a ProbabilityReport.
+
+    This endpoint is the primary entry point for the EVAL Research Lab benchmark
+    runner (Phase 2). It accepts the same synthesis payload as POST /synthesize
+    but extends it with an ``eval_config`` block controlling:
+
+      - ``swarm_size``: SOLO (1 agent), TRIAD (3 agents), or FULL (7 agents).
+      - ``target_model``: Pinned LiteLLM model string — no cascade fallback.
+      - ``experiment_name`` / ``run_label``: Tags written to every Langfuse
+        trace, Phoenix eval score, and OTel span so the Phase 3 aggregation
+        pipeline can group results by (experiment, config).
+
+    The pipeline is identical to POST /synthesize — guardrails output rail and
+    the Execution Gatekeeper are applied so EVAL scores are comparable to
+    production runs. The only differences are the number of agents used and,
+    when target_model is set, which LLM they call.
+
+    Example request body::
+
+        {
+          "ticker": "NVDA",
+          "question": "What is the 30-day outlook for NVDA given current macro conditions?",
+          "horizon_days": 30,
+          "rag": {"summary": null, "retrieved": []},
+          "eval_config": {
+            "experiment_name": "swarm_size_vs_model_impact",
+            "run_label": "config_B_triad_gemini_flash",
+            "swarm_size": "triad",
+            "target_model": "gemini/gemini-2.5-flash"
+          }
+        }
+    """
+    from app.eval_schemas import EvalSynthesizeRequest  # local import avoids circular on startup
+
+    engine = request.app.state.engine
+    runs = request.app.state.runs
+
+    run = runs.start(payload.ticker)
+    run.log("eval_synthesize_received", {
+        "ticker": payload.ticker.upper(),
+        "experiment": payload.eval_config.experiment_name,
+        "run_label": payload.eval_config.run_label,
+        "swarm_size": payload.eval_config.swarm_size.value,
+        "target_model": payload.eval_config.target_model or "cascade",
+    })
+
+    try:
+        report = engine.synthesize(payload, run, eval_config=payload.eval_config)
+    except RuntimeError as exc:
+        # pick_crewai_llm_pinned raises RuntimeError when the target model's
+        # API key is missing — surface this as a clear 422 for the runner.
+        log.error(
+            "eval_synthesize model config error run_id=%s: %s", run.run_id, exc
+        )
+        runs.finish(run.run_id)
+        raise HTTPException(422, f"EVAL model config error: {exc}") from None
+    except Exception:
+        log.exception(
+            "eval_synthesize failed run_id=%s ticker=%s experiment=%s",
+            run.run_id, payload.ticker, payload.eval_config.experiment_name,
+        )
+        runs.finish(run.run_id)
+        raise HTTPException(502, "eval synthesis failed; see run trace") from None
+
+    # Apply the same output rail and gatekeeper as production /synthesize so
+    # EVAL pipeline scores are computed against identical guardrail conditions.
+    from app.gatekeeper import enforce as gatekeeper_enforce
+    gk = gatekeeper_enforce(report, run.run_id)
+    report = gk.report
+    run.log("gatekeeper", {
+        "ticker": report.ticker,
+        "execution_allowed": gk.execution_allowed,
+        "violations": gk.violation_reasons,
+    })
+    runs.finish(run.run_id)
+
+    log.info(
+        "eval_synthesize done run_id=%s ticker=%s experiment=%s swarm=%s model=%s "
+        "p_bull=%.2f risk=%s gatekeeper=%s",
+        report.run_id, report.ticker,
+        payload.eval_config.experiment_name,
+        payload.eval_config.swarm_size.value,
+        payload.eval_config.target_model or "cascade",
+        report.probabilities.bullish,
+        report.risk_assessment.risk_level,
         "allowed" if gk.execution_allowed else "BLOCKED",
     )
     return report
@@ -257,3 +356,137 @@ def get_move_probs(ticker: str, horizon_days: int = 1) -> dict:
         raise HTTPException(400, f"{t} is not on the approved whitelist")
     probs = instrument_probs(ticker=t, horizon_trading_days=max(1, min(horizon_days, 30)))
     return {"ticker": t, "horizon_trading_days": horizon_days, "move_probs": probs}
+
+
+# ── EVAL Research Lab: Phase 3 Data Aggregation endpoint ─────────────────────
+
+@router.get("/eval/summary", tags=["eval"])
+async def eval_summary(
+    request: Request,
+    experiment: str = "swarm_size_vs_model_impact",
+    jsonl_file: str | None = None,
+    no_langfuse: bool = False,
+    no_phoenix: bool = False,
+) -> dict:
+    """Aggregate EVAL benchmark results into a dashboard-ready JSON payload.
+
+    Fuses three data sources for the Phase 4 Next.js Research Dashboard:
+
+      1. **Local JSONL** — Phase 2 runner output (latency, status, bullish,
+         confidence, risk_level per matrix cell).
+      2. **Langfuse API** — per-trace cost (USD), token usage, end-to-end
+         latency, and eval scores (faithfulness, answer_relevancy,
+         schema_compliance) attached by our eval_hooks pipeline.
+      3. **Phoenix API** — per-run_id evaluation rows posted by the eval hooks,
+         providing a cross-check on faithfulness and hallucination flags.
+
+    Response is structured for direct consumption by:
+      - Bar charts  → ``by_model[]``, ``by_swarm[]``
+      - Scatter plot → ``scatter_data[]`` (cost_usd vs quality_score)
+      - Table        → ``top_runs[]``
+      - Conclusions  → ``conclusions`` dict with best-config recommendations
+
+    Query Parameters:
+        experiment:  Experiment name filter (default: swarm_size_vs_model_impact)
+        jsonl_file:  Absolute or relative path to a specific JSONL result file.
+                     Defaults to the latest eval_results_*.jsonl in ./data/
+        no_langfuse: Set to true to skip Langfuse enrichment (offline/fast mode)
+        no_phoenix:  Set to true to skip Phoenix enrichment (offline/fast mode)
+
+    HTTP 200 — dashboard-ready JSON payload.
+    HTTP 404 — no JSONL benchmark data found (run the Phase 2 runner first).
+    HTTP 500 — unexpected aggregation error (check engine logs).
+    """
+    import os
+    from pathlib import Path
+    from functools import partial
+    from app.config import settings
+
+    # Resolve JSONL path
+    jsonl_path: Path | None = None
+    if jsonl_file:
+        jsonl_path = Path(jsonl_file)
+        if not jsonl_path.is_absolute():
+            # Resolve relative to the working directory of the engine process
+            jsonl_path = Path.cwd() / jsonl_path
+        if not jsonl_path.exists():
+            raise HTTPException(
+                404,
+                f"JSONL file not found: {jsonl_path}. "
+                "Run `python scripts/run_eval_matrix.py` to generate benchmark data."
+            )
+
+    # Pull Langfuse credentials from the engine's settings
+    # (same env vars used by langfuse_tracing.py)
+    lf_pk   = getattr(settings, "langfuse_public_key",  None)
+    lf_sk   = getattr(settings, "langfuse_secret_key",  None)
+    lf_host = getattr(settings, "langfuse_host",        "http://langfuse:3000")
+    if hasattr(lf_pk, "get_secret_value"):
+        lf_pk = lf_pk.get_secret_value()
+    if hasattr(lf_sk, "get_secret_value"):
+        lf_sk = lf_sk.get_secret_value()
+
+    phoenix_ep = getattr(settings, "phoenix_endpoint", "") or ""
+
+    # The aggregation pipeline uses the Langfuse SDK which is synchronous.
+    # Run it in a thread pool so we don't block the FastAPI event loop.
+    # Load aggregate_eval_data.py dynamically from the volume mount (/srv/scripts) first
+    # to avoid importing the stale script from the container's built-in /app/scripts.
+    run_aggregation = None
+    import importlib.util, sys
+    
+    spec_path = Path("/srv/scripts/aggregate_eval_data.py")
+    if not spec_path.exists():
+        spec_path = Path(__file__).parent.parent.parent / "scripts" / "aggregate_eval_data.py"
+    if not spec_path.exists():
+        spec_path = Path("/app/scripts/aggregate_eval_data.py")
+        
+    if spec_path.exists():
+        try:
+            spec = importlib.util.spec_from_file_location("aggregate_eval_data", spec_path)
+            mod  = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+            # Register in sys.modules BEFORE exec_module: dataclasses resolve their
+            # own module via sys.modules during class creation, so an unregistered
+            # module raises AttributeError on the first @dataclass. Registering up
+            # front also means we re-exec the live /srv/scripts file on every call
+            # (picking up edits) instead of serving a stale cached import.
+            sys.modules["aggregate_eval_data"] = mod
+            spec.loader.exec_module(mod)  # type: ignore[union-attr]
+            run_aggregation = mod.run_aggregation
+        except Exception as exc:
+            log.warning("Failed to dynamically load aggregate_eval_data from %s: %s", spec_path, exc)
+            sys.modules.pop("aggregate_eval_data", None)
+            
+    if run_aggregation is None:
+        try:
+            from scripts.aggregate_eval_data import run_aggregation  # type: ignore[import]
+        except ImportError:
+            raise HTTPException(
+                500,
+                "aggregate_eval_data.py not found. Tried /srv/scripts, parent /scripts, and /app/scripts"
+            )
+
+    # Prepare the aggregation call as a partial (runs in thread)
+    agg_fn = partial(
+        run_aggregation,
+        jsonl_path       = jsonl_path,
+        use_langfuse     = not no_langfuse,
+        use_phoenix      = not no_phoenix,
+        lf_public_key    = lf_pk   or "",
+        lf_secret_key    = lf_sk   or "",
+        lf_host          = lf_host,
+        phoenix_endpoint = phoenix_ep,
+        experiment_name  = experiment,
+    )
+
+    loop = asyncio.get_event_loop()
+    try:
+        payload = await loop.run_in_executor(None, agg_fn)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from None
+    except Exception as exc:
+        log.exception("eval_summary aggregation failed: %s", exc)
+        raise HTTPException(500, f"Aggregation failed: {exc}") from None
+
+    return payload
+

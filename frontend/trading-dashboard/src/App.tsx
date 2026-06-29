@@ -10,6 +10,7 @@ import { AlertLog } from "./components/AlertLog";
 import { DailyBriefingPanel } from "./components/DailyBriefingPanel";
 import { ContinuousDesk } from "./components/ContinuousDesk";
 import { IngestionDashboard } from "./components/IngestionDashboard";
+import { EvalDashboard } from "./components/EvalDashboard";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ChatSidebar } from "./components/ChatSidebar";
 import { ChatToggleBtn } from "./components/ChatToggleBtn";
@@ -38,7 +39,7 @@ export default function App() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── View mode ──────────────────────────────────────────────────────────────
-  type ViewMode = "command" | "analysis" | "briefing" | "continuous" | "ingestion";
+  type ViewMode = "command" | "analysis" | "briefing" | "continuous" | "ingestion" | "eval";
   const [viewMode, setViewMode] = useState<ViewMode>("command");
   // ── Analysis panel state ───────────────────────────────────────────────────
   const [stage, setStage] = useState<Stage>("idle");
@@ -155,6 +156,12 @@ export default function App() {
             >
               {viewMode === "continuous" ? "◉ LIVE DESK" : "○ LIVE DESK"}
             </button>
+            <button
+              className={`mode-btn ${viewMode === "eval" ? "mode-btn--on" : ""}`}
+              onClick={() => setViewMode(m => m === "eval" ? "command" : "eval")}
+            >
+              {viewMode === "eval" ? "◉ EVAL LAB" : "○ EVAL LAB"}
+            </button>
             {isAdmin && (
               <button
                 className={`mode-btn ${viewMode === "ingestion" ? "mode-btn--on" : ""}`}
@@ -259,6 +266,8 @@ export default function App() {
         <ErrorBoundary name="Live Desk"><ContinuousDesk /></ErrorBoundary>
       ) : effectiveView === "ingestion" ? (
         <ErrorBoundary name="Ingestion Dashboard"><IngestionDashboard /></ErrorBoundary>
+      ) : effectiveView === "eval" ? (
+        <ErrorBoundary name="EVAL Research Lab"><EvalDashboard /></ErrorBoundary>
       ) : (
         <ErrorBoundary name="Command Center">
           <CommandCenter

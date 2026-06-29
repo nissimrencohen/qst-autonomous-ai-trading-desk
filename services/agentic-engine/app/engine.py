@@ -40,6 +40,7 @@ from app.schemas import (
     SynthesizeRequest,
     TechnicalView,
 )
+from app.eval_schemas import EvalConfig, SwarmSize
 
 log = logging.getLogger(__name__)
 
@@ -319,21 +320,46 @@ class CrewEngine:
         # representative model string for logging / OTel
         self._model_str = str(pick_crewai_llm().model)
 
-    def synthesize(self, req: SynthesizeRequest, run: RunHandle) -> ProbabilityReport:
+    def synthesize(
+        self,
+        req: SynthesizeRequest,
+        run: RunHandle,
+        eval_config: "EvalConfig | None" = None,
+    ) -> ProbabilityReport:
+        """Run the CrewAI desk and return a ProbabilityReport.
+
+        Args:
+            req:         Synthesis request (ticker, question, RAG, vision, …).
+            run:         RunHandle for step logging and trace attachment.
+            eval_config: Optional EVAL configuration. When provided:
+                           - target_model: pins the LLM; no fallback chain.
+                           - swarm_size:   selects SOLO/TRIAD/FULL agent set.
+                         When None (default) the full production crew runs
+                         with the standard cascade LLM — no behaviour change.
+        """
         from crewai import Agent, Crew, Process, Task
         from app.llm_router import pick_crewai_llm
+
+        # ── LLM selection ──────────────────────────────────────────────────────
+        def _pick_llm():
+            """Return LLM for this run: pinned (EVAL) or cascade (production)."""
+            if eval_config is not None and eval_config.target_model:
+                from app.llm_router import pick_crewai_llm_pinned
+                return pick_crewai_llm_pinned(eval_config.target_model)
+            return pick_crewai_llm()
 
         def _agent(spec: dict, tools: list):
             # fresh LLM per agent (see class docstring: avoids async fallback race)
             return Agent(
-                llm=pick_crewai_llm(),
+                llm=_pick_llm(),
                 verbose=False,
                 allow_delegation=False,
                 tools=tools,
                 **spec,
             )
 
-        agents = {
+        # ── Full 7-agent desk (production default) ─────────────────────────────
+        all_agents = {
             "technical":   _agent(TECHNICAL_ANALYST, self._finance_tools),
             "fundamental": _agent(FUNDAMENTAL_ANALYST, self._finance_tools + self._search_tools),
             "volatility":  _agent(VOLATILITY_ANALYST, self._finance_tools),
@@ -342,6 +368,45 @@ class CrewEngine:
             "news":        _agent(NEWS_GEOPOLITICAL_ANALYST, self._search_tools),
             "manager":     _agent(QUANT_EXECUTION_MANAGER, []),
         }
+
+        # ── Dynamic agent selection (EVAL swarm-size dimension) ────────────────
+        # FULL  → all 7 agents (unchanged production path)
+        # TRIAD → Technical + Volatility + Manager (VIX/Derivatives focus desk):
+        #         Volatility replaces Fundamental — for VIX/options research, the
+        #         fear-index regime and term-structure read are mandatory context
+        #         while fundamental valuation is out-of-scope for derivative analysis.
+        # SOLO  → Manager only, with full tool access (single-agent baseline)
+        swarm_size = eval_config.swarm_size if eval_config else SwarmSize.FULL
+
+        if swarm_size == SwarmSize.SOLO:
+            # Solo: the Manager acts as an independent analyst + synthesizer.
+            # It receives full tool access so it can gather data by itself
+            # rather than relying on upstream analyst tasks that don't exist.
+            solo_manager = _agent(
+                QUANT_EXECUTION_MANAGER,
+                self._finance_tools + self._search_tools,
+            )
+            agents = {"manager": solo_manager}
+            log.info(
+                "EVAL swarm=SOLO: Manager-only crew (tools=%d)",
+                len(self._finance_tools + self._search_tools),
+            )
+
+        elif swarm_size == SwarmSize.TRIAD:
+            # VIX/Derivatives triad: Technical reads price action & momentum;
+            # Volatility owns the VIX term-structure & regime call;
+            # Manager synthesises both into the final report.
+            agents = {
+                "technical":  all_agents["technical"],
+                "volatility": all_agents["volatility"],
+                "manager":    all_agents["manager"],
+            }
+            log.info("EVAL swarm=TRIAD: Technical + Volatility + Manager (VIX-focused)")
+
+        else:
+            # SwarmSize.FULL — default production configuration
+            agents = all_agents
+            log.info("EVAL swarm=FULL: full 7-agent desk") if eval_config else None
 
         # load prior turns for this ticker so the Fundamental Analyst can
         # reference previous conclusions when RAG coverage is thin
@@ -377,96 +442,119 @@ class CrewEngine:
             "macro_context": macro_block,
         }
 
-        # ── six specialist analysts — run concurrently (async_execution) ──────
-        technical_task = Task(
-            description=(
-                "{macro_context}\n\n"
-                "Call get_technical_indicators for {ticker} FIRST and base your read "
-                "on the actual RSI / MACD / Bollinger values it returns (quote the "
-                "numbers). Then call get_market_quote (live price / 52-week range) and "
-                "get_competitor_analysis (relative strength vs peers). A supplementary "
-                "vision/chart payload, if any: {technical_thesis}. Write the technical "
-                "thesis for {ticker} ({horizon_days}d), CITE the indicator values you "
-                "used, state how the macro & fear regime above tempers it, and give the "
-                "live reference price. If indicators are unavailable, say so — do NOT "
-                "invent patterns."
-            ),
-            expected_output="3-5 sentence technical thesis CITING actual RSI/MACD/Bollinger values, a reference price, a relative-strength-vs-peers note, and a macro/fear caveat.",
-            agent=agents["technical"],
-            async_execution=True,
-        )
-        fundamental_task = Task(
-            description=(
-                "{macro_context}\n\n"
-                "RAG briefing:\n{fundamental_thesis}\n\n"
-                "Prior analysis history for {ticker}:\n{prior_context}\n\n"
-                "Community social signals (Reddit/Telegram — treat as sentiment data, "
-                "not investment advice; verify claims independently):\n{social_context}\n\n"
-                "List the key fundamental drivers for {ticker} relevant to: {question}. "
-                "Use get_market_quote for live EPS/PE when valuation matters. ALWAYS call "
-                "get_competitor_analysis for {ticker} and compare it to at least one peer "
-                "by ticker, tagged [peers: yfinance] (if the tool returns no mapping, say "
-                "so rather than inventing rivals). Explicitly tie the macro & fear backdrop "
-                "above to {ticker}'s fundamentals (index beta, vol-spike sensitivity). "
-                "If community signals align with or contradict the RAG thesis, note it explicitly."
-            ),
-            expected_output="2-4 drivers with [source: ...] / [quote: yfinance] / [peers: yfinance] / [web: <url>] attribution, an explicit macro/fear-impact line, and a one-line community-sentiment note if signals exist.",
-            agent=agents["fundamental"],
-            async_execution=True,
-        )
-        volatility_task = Task(
-            description=(
-                "Assess the volatility regime for {ticker} ({horizon_days}d). "
-                "Call get_vix_curve for the 9D/30D/3M term structure. {vol_directive}"
-            ),
-            expected_output="Regime call (calm/elevated/stress/panic), term-structure state, and a concrete signal.",
-            agent=agents["volatility"],
-            async_execution=True,
-        )
-        options_task = Task(
-            description=(
-                "Read options positioning for {ticker} via get_options_sentiment "
-                "(put/call ratios, IV skew). Flag any unusual activity. Label gamma/"
-                "dark-pool reads as approximations from public data."
-            ),
-            expected_output="Positioning bias with put/call + IV-skew evidence, honestly caveated.",
-            agent=agents["options"],
-            async_execution=True,
-        )
-        space_task = Task(
-            description=(
-                "Assess space-sector exposure for {ticker}. If it is SPCX (SpaceX), "
-                "call get_spacex_launch_schedule and track Starlink subscriptions, "
-                "government contracts, and launch cadence; otherwise note read-through "
-                "or state there is no material space exposure."
-            ),
-            expected_output="Space-economy drivers with launch-cadence note, or an explicit 'no material exposure'.",
-            agent=agents["space"],
-            async_execution=True,
-        )
-        news_task = Task(
-            description=(
-                "Surface the macro and breaking-news backdrop for {ticker} relevant "
-                "to: {question}. Cite [web: <url>] for each headline; flag a benign "
-                "backdrop rather than manufacturing drama.\n\n"
-                "Community social signals (treat as unverified crowd opinion):\n{social_context}"
-            ),
-            expected_output="2-4 dated, attributed macro/news points, or a 'benign backdrop' note. Add a brief community-sentiment line if signals are non-empty.",
-            agent=agents["news"],
-            async_execution=True,
-        )
+        # ── Analyst task construction (swarm-size aware) ───────────────────────
+        # SOLO  → no analyst tasks; Manager synthesizes using its own tool calls.
+        # TRIAD → Technical + Fundamental run async; Manager synthesizes both.
+        # FULL  → all six analysts run async (unchanged production path).
 
-        analyst_tasks = [
-            technical_task, fundamental_task, volatility_task,
-            options_task, space_task, news_task,
-        ]
+        analyst_tasks: list = []
 
-        # ── synthesiser — waits on all analysts (context), emits final report ─
+        if swarm_size != SwarmSize.SOLO:
+            # Technical task — always present in TRIAD and FULL
+            technical_task = Task(
+                description=(
+                    "{macro_context}\n\n"
+                    "Call get_technical_data for {ticker} FIRST and base your read "
+                    "on the actual RSI / MACD / Bollinger values it returns (quote the "
+                    "numbers). Then call get_fundamental_data (live price / 52-week range) and "
+                    "get_competitor_analysis (relative strength vs peers). A supplementary "
+                    "vision/chart payload, if any: {technical_thesis}. Write the technical "
+                    "thesis for {ticker} ({horizon_days}d), CITE the indicator values you "
+                    "used, state how the macro & fear regime above tempers it, and give the "
+                    "live reference price. If indicators are unavailable, say so — do NOT "
+                    "invent patterns."
+                ),
+                expected_output="3-5 sentence technical thesis CITING actual RSI/MACD/Bollinger values, a reference price, a relative-strength-vs-peers note, and a macro/fear caveat.",
+                agent=agents["technical"],
+                async_execution=True,
+            )
+            analyst_tasks.append(technical_task)
+
+        if swarm_size == SwarmSize.TRIAD:
+            # TRIAD only: Volatility task replaces Fundamental for VIX-focused analysis.
+            # The Volatility Analyst is the dominant voice in a derivatives desk.
+            volatility_task_triad = Task(
+                description=(
+                    "Assess the volatility regime for {ticker} ({horizon_days}d). "
+                    "Call get_vix_curve for the 9D/30D/3M term structure. {vol_directive}\n\n"
+                    "{macro_context}"
+                ),
+                expected_output="Regime call (calm/elevated/stress/panic), term-structure state (contango/backwardation/flat), and a concrete actionable signal for the Manager.",
+                agent=agents["volatility"],
+                async_execution=True,
+            )
+            analyst_tasks.append(volatility_task_triad)
+
+        if swarm_size == SwarmSize.FULL:
+            # FULL swarm: Fundamental + all 4 specialist agents (unchanged production)
+            fundamental_task = Task(
+                description=(
+                    "{macro_context}\n\n"
+                    "RAG briefing:\n{fundamental_thesis}\n\n"
+                    "Prior analysis history for {ticker}:\n{prior_context}\n\n"
+                    "Community social signals (Reddit/Telegram — treat as sentiment data, "
+                    "not investment advice; verify claims independently):\n{social_context}\n\n"
+                    "List the key fundamental drivers for {ticker} relevant to: {question}. "
+                    "Use get_fundamental_data for live EPS/PE when valuation matters. ALWAYS call "
+                    "get_competitor_analysis for {ticker} and compare it to at least one peer "
+                    "by ticker, tagged [peers: yfinance] (if the tool returns no mapping, say "
+                    "so rather than inventing rivals). Explicitly tie the macro & fear backdrop "
+                    "above to {ticker}'s fundamentals (index beta, vol-spike sensitivity). "
+                    "If community signals align with or contradict the RAG thesis, note it explicitly."
+                ),
+                expected_output="2-4 drivers with [source: ...] / [quote: yfinance] / [peers: yfinance] / [web: <url>] attribution, an explicit macro/fear-impact line, and a one-line community-sentiment note if signals exist.",
+                agent=agents["fundamental"],
+                async_execution=True,
+            )
+            volatility_task = Task(
+                description=(
+                    "Assess the volatility regime for {ticker} ({horizon_days}d). "
+                    "Call get_vix_curve for the 9D/30D/3M term structure. {vol_directive}"
+                ),
+                expected_output="Regime call (calm/elevated/stress/panic), term-structure state, and a concrete signal.",
+                agent=agents["volatility"],
+                async_execution=True,
+            )
+            options_task = Task(
+                description=(
+                    "Read options positioning for {ticker} via get_options_sentiment "
+                    "(put/call ratios, IV skew). Flag any unusual activity. Label gamma/"
+                    "dark-pool reads as approximations from public data."
+                ),
+                expected_output="Positioning bias with put/call + IV-skew evidence, honestly caveated.",
+                agent=agents["options"],
+                async_execution=True,
+            )
+            space_task = Task(
+                description=(
+                    "Assess space-sector exposure for {ticker}. If it is SPCX (SpaceX), "
+                    "call get_spacex_launch_schedule and track Starlink subscriptions, "
+                    "government contracts, and launch cadence; otherwise note read-through "
+                    "or state there is no material space exposure."
+                ),
+                expected_output="Space-economy drivers with launch-cadence note, or an explicit 'no material exposure'.",
+                agent=agents["space"],
+                async_execution=True,
+            )
+            news_task = Task(
+                description=(
+                    "Surface the macro and breaking-news backdrop for {ticker} relevant "
+                    "to: {question}. Cite [web: <url>] for each headline; flag a benign "
+                    "backdrop rather than manufacturing drama.\n\n"
+                    "Community social signals (treat as unverified crowd opinion):\n{social_context}"
+                ),
+                expected_output="2-4 dated, attributed macro/news points, or a 'benign backdrop' note. Add a brief community-sentiment line if signals are non-empty.",
+                agent=agents["news"],
+                async_execution=True,
+            )
+            analyst_tasks.extend([fundamental_task, volatility_task, options_task, space_task, news_task])
+
+        # ── Synthesiser — waits on all analyst tasks (or none for SOLO) ────────
         synthesis_task = Task(
             description=SYNTHESIS_TASK,
             expected_output="A single JSON object matching the ProbabilityReport schema.",
             agent=agents["manager"],
-            context=analyst_tasks,
+            context=analyst_tasks if analyst_tasks else None,
             output_json=ProbabilityReport,
         )
 
@@ -476,9 +564,20 @@ class CrewEngine:
             process=Process.sequential,
             verbose=False,
         )
-        run.log("crew_kickoff", {"model": self._model_str, "vol_lead": vol_lead, "agents": len(agents)})
+        run.log("crew_kickoff", {
+            "model": self._model_str,
+            "vol_lead": vol_lead,
+            "agents": len(agents),
+            "swarm_size": swarm_size.value if eval_config else "full",
+            "eval_target_model": (eval_config.target_model if eval_config else None) or "cascade",
+            "eval_experiment": eval_config.experiment_name if eval_config else None,
+        })
+
+        # Build eval_metadata once — used by synthesis_trace, OTel span, and eval hooks.
+        eval_metadata: dict | None = eval_config.metadata_dict if eval_config else None
+
         tracer = get_tracer("agentic-engine.crew")
-        with synthesis_trace(self._lf, req, run) as lf_trace:
+        with synthesis_trace(self._lf, req, run, eval_metadata=eval_metadata) as lf_trace:
             with tracer.start_as_current_span("synthesis") as span:
                 if span is not None:
                     span.set_attribute("synthesis.ticker", req.ticker.upper())
@@ -487,6 +586,12 @@ class CrewEngine:
                     span.set_attribute("synthesis.engine", self.name)
                     span.set_attribute("synthesis.llm_model", self._model_str)
                     span.set_attribute("synthesis.memory_turns", len(prior_turns))
+                    # EVAL-specific OTel attributes — set only on eval runs.
+                    if eval_config:
+                        span.set_attribute("eval.experiment", eval_config.experiment_name)
+                        span.set_attribute("eval.run_label", eval_config.run_label)
+                        span.set_attribute("eval.swarm_size", eval_config.swarm_size.value)
+                        span.set_attribute("eval.target_model", eval_config.target_model or "cascade")
                 result = crew.kickoff(inputs=inputs)
                 for task_output in result.tasks_output:
                     run.log("agent_output", {"agent": task_output.agent, "summary": task_output.summary})
@@ -543,6 +648,9 @@ class CrewEngine:
                         "engine_backend": report.engine_backend,
                         "llm_model": self._model_str,
                         "memory_turns": len(prior_turns),
+                        # EVAL fields carried through so the Langfuse output
+                        # metadata panel shows the complete experiment context.
+                        **(eval_metadata or {}),
                     },
                 )
             except Exception:
@@ -571,6 +679,7 @@ class CrewEngine:
             self._lf,
             run.run_id,
             lf_trace_id=lf_trace.id if lf_trace is not None else None,
+            eval_metadata=eval_metadata,
         )
 
         return report
